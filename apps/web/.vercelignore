@@ -1,0 +1,8 @@
+.next
+.vercel
+node_modules
+.env*
+*.pem
+*.tsbuildinfo
+e2e
+**/*.test.ts

@@ -1,0 +1,64 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: groundskeeper
+          POSTGRES_PASSWORD: groundskeeper
+          POSTGRES_DB: groundskeeper_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U groundskeeper"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://groundskeeper:groundskeeper@localhost:5432/groundskeeper_test
+      DATABASE_TEST_URL: postgresql://groundskeeper:groundskeeper@localhost:5432/groundskeeper_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.17.1'
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.22'
+          enable-cache: true
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --locked
+      - run: pnpm contracts
+      - name: Check generated contracts are committed
+        run: git diff --exit-code -- packages/contracts/src
+      - run: pnpm db:generate
+      - run: pnpm --filter @groundskeeper/database validate
+      - run: pnpm db:migrate
+      - run: pnpm check
+      - run: uv run ruff format --check .
+      - run: pnpm build
+      - name: Install browser for dashboard checks
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Test dashboard interactions and recovery
+        run: pnpm exec playwright test
+      - run: pnpm demo
+      - run: pnpm eval
+      - name: Prepare explicit sandbox runtime
+        run: docker pull python:3.12-slim
+      - name: Verify examples and container isolation against real Docker
+        env:
+          GROUNDSKEEPER_DOCKER_TEST: '1'
+        run: uv run pytest services/analysis/tests/test_verification.py services/analysis/tests/test_tutorial.py -k real_docker
+
+      - name: Verify repair proposals against real Docker
+        env:
+          GROUNDSKEEPER_DOCKER_TEST: '1'
+        run: pnpm exec vitest run apps/github/src/repairs/engine.integration.test.ts

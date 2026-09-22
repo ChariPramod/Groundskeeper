@@ -1,0 +1,415 @@
+{
+  "$defs": {
+    "Claim": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "page": {
+          "minLength": 1,
+          "title": "Page",
+          "type": "string"
+        },
+        "anchor": {
+          "title": "Anchor",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "paragraph",
+            "code",
+            "table_row",
+            "image"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/Reference"
+          },
+          "title": "References",
+          "type": "array"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "runnable": {
+          "default": false,
+          "title": "Runnable",
+          "type": "boolean"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session"
+        },
+        "expected_output": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Output"
+        },
+        "status": {
+          "$ref": "#/$defs/ClaimStatus",
+          "default": "unknown"
+        },
+        "last_verified": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Verified"
+        },
+        "verification_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verification Method"
+        }
+      },
+      "required": [
+        "id",
+        "page",
+        "anchor",
+        "kind",
+        "text",
+        "position"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "ClaimLink": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "symbol_id": {
+          "title": "Symbol Id",
+          "type": "string"
+        },
+        "match": {
+          "title": "Match",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "claim_id",
+        "symbol_id",
+        "match",
+        "confidence"
+      ],
+      "title": "ClaimLink",
+      "type": "object"
+    },
+    "ClaimStatus": {
+      "enum": [
+        "unknown",
+        "verified",
+        "stale",
+        "unverifiable"
+      ],
+      "title": "ClaimStatus",
+      "type": "string"
+    },
+    "Health": {
+      "additionalProperties": false,
+      "properties": {
+        "total_claims": {
+          "title": "Total Claims",
+          "type": "integer"
+        },
+        "linked_claims": {
+          "title": "Linked Claims",
+          "type": "integer"
+        },
+        "affected_claims": {
+          "title": "Affected Claims",
+          "type": "integer"
+        },
+        "link_coverage": {
+          "title": "Link Coverage",
+          "type": "number"
+        },
+        "verified_share": {
+          "title": "Verified Share",
+          "type": "number"
+        },
+        "statuses": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Statuses",
+          "type": "object"
+        }
+      },
+      "required": [
+        "total_claims",
+        "linked_claims",
+        "affected_claims",
+        "link_coverage",
+        "verified_share",
+        "statuses"
+      ],
+      "title": "Health",
+      "type": "object"
+    },
+    "Impact": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "symbol_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbol Ids",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "symbol_ids",
+        "reason"
+      ],
+      "title": "Impact",
+      "type": "object"
+    },
+    "Position": {
+      "additionalProperties": false,
+      "properties": {
+        "start_line": {
+          "minimum": 1,
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "start_column": {
+          "minimum": 1,
+          "title": "Start Column",
+          "type": "integer"
+        },
+        "end_line": {
+          "minimum": 1,
+          "title": "End Line",
+          "type": "integer"
+        },
+        "end_column": {
+          "minimum": 1,
+          "title": "End Column",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start_line",
+        "start_column",
+        "end_line",
+        "end_column"
+      ],
+      "title": "Position",
+      "type": "object"
+    },
+    "Reference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "identifier",
+            "url",
+            "path",
+            "flag"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "Reference",
+      "type": "object"
+    },
+    "Symbol": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "qualified_name": {
+          "title": "Qualified Name",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "start_line": {
+          "title": "Start Line",
+          "type": "integer"
+        },
+        "end_line": {
+          "title": "End Line",
+          "type": "integer"
+        },
+        "fingerprint": {
+          "title": "Fingerprint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "name",
+        "qualified_name",
+        "kind",
+        "language",
+        "start_line",
+        "end_line",
+        "fingerprint"
+      ],
+      "title": "Symbol",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "symbols": {
+      "items": {
+        "$ref": "#/$defs/Symbol"
+      },
+      "title": "Symbols",
+      "type": "array"
+    },
+    "links": {
+      "items": {
+        "$ref": "#/$defs/ClaimLink"
+      },
+      "title": "Links",
+      "type": "array"
+    },
+    "changed_symbol_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Symbol Ids",
+      "type": "array"
+    },
+    "impacts": {
+      "items": {
+        "$ref": "#/$defs/Impact"
+      },
+      "title": "Impacts",
+      "type": "array"
+    },
+    "health": {
+      "$ref": "#/$defs/Health"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "claims",
+    "symbols",
+    "links",
+    "changed_symbol_ids",
+    "impacts",
+    "health",
+    "warnings"
+  ],
+  "title": "AnalysisReport",
+  "type": "object"
+}

@@ -1,0 +1,50 @@
+{
+  "name": "groundskeeper",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.17.0 <25"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "contracts": "uv run python scripts/generate_contracts.py && tsx scripts/generate-types.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && uv run ruff check . && uv run pytest",
+    "index": "tsx packages/parser/src/cli.ts",
+    "demo": "uv run groundskeeper analyze --docs examples/demo/docs --before examples/demo/before --after examples/demo/after --output .groundskeeper/demo.json",
+    "worker": "tsx apps/github/src/worker-main.ts",
+    "verify:run": "tsx apps/github/src/verify-main.ts",
+    "doctor": "tsx apps/github/src/doctor-main.ts",
+    "test:integration": "tsx apps/github/src/integration-main.ts",
+    "eval": "uv run python scripts/evaluate.py",
+    "github:dev": "tsx apps/github/src/main.ts",
+    "db:generate": "tsx apps/github/src/database-main.ts generate",
+    "db:migrate": "tsx apps/github/src/database-main.ts migrate",
+    "db:validate": "tsx apps/github/src/database-main.ts validate",
+    "db:status": "tsx apps/github/src/database-main.ts status",
+    "queue": "tsx apps/github/src/queue-main.ts",
+    "dev": "pnpm --filter @groundskeeper/web dev",
+    "web:start": "pnpm --filter @groundskeeper/web start",
+    "test:web": "pnpm --filter @groundskeeper/web build && playwright test",
+    "repair:prepare": "tsx apps/github/src/repair-main.ts prepare",
+    "repair:inspect": "tsx apps/github/src/repair-main.ts inspect",
+    "repair:publish": "tsx apps/github/src/repair-main.ts publish",
+    "repair:demo": "tsx apps/github/src/repair-demo.ts",
+    "pr:analyze": "tsx apps/github/src/pr-main.ts analyze",
+    "check:run": "tsx apps/github/src/pr-main.ts check"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.4",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.18.0",
+    "json-schema-to-typescript": "^15.0.4",
+    "tsx": "^4.20.5",
+    "typescript": "~5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

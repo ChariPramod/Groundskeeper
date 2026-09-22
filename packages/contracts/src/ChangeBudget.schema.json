@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "max_pages": {
+      "default": 3,
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Max Pages",
+      "type": "integer"
+    },
+    "max_prs": {
+      "default": 1,
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Max Prs",
+      "type": "integer"
+    },
+    "max_lines_changed": {
+      "default": 150,
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Max Lines Changed",
+      "type": "integer"
+    }
+  },
+  "title": "ChangeBudget",
+  "type": "object"
+}

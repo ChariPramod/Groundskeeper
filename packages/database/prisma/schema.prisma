@@ -1,0 +1,182 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ClaimStatus {
+  unknown
+  verified
+  stale
+  unverifiable
+}
+
+model Workspace {
+  id             String       @id @default(cuid())
+  installationId BigInt       @unique
+  account        String
+  createdAt      DateTime     @default(now())
+  repositories   Repository[]
+}
+
+model Repository {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  githubId         BigInt
+  fullName         String
+  defaultBranch    String
+  maxPages         Int       @default(3)
+  maxPrs           Int       @default(1)
+  maxLinesChanged  Int       @default(150)
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pages            Page[]
+  symbols          Symbol[]
+  analysisRuns     AnalysisRun[]
+
+  @@unique([workspaceId, githubId])
+}
+
+// Append-only results; repository identity is scoped by its installation workspace.
+model AnalysisRun {
+  id            String     @id @default(cuid())
+  repositoryId  String
+  deliveryId    String     @unique
+  beforeCommit  String
+  afterCommit   String
+  inputDigest   String
+  report        Json
+  createdAt     DateTime   @default(now())
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  verificationRuns VerificationRun[]
+  repairPublication RepairPublication?
+
+  @@index([repositoryId, createdAt])
+}
+
+model Page {
+  id            String     @id @default(cuid())
+  repositoryId  String
+  path          String
+  indexedCommit String
+  indexedAt     DateTime   @default(now())
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  claims        Claim[]
+
+  @@unique([repositoryId, path])
+}
+
+model Claim {
+  id                 String         @id @default(cuid())
+  pageId             String
+  stableKey          String
+  anchor             String
+  kind               String
+  text               String
+  position           Json
+  references         Json
+  language           String?
+  runnable           Boolean        @default(false)
+  expectedOutput     String?
+  status             ClaimStatus    @default(unknown)
+  lastVerified       DateTime?
+  verificationMethod String?
+  page               Page           @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  links              ClaimLink[]
+  evidence           Evidence[]
+
+  @@unique([pageId, stableKey])
+  @@index([status, lastVerified])
+}
+
+model Symbol {
+  id            String     @id @default(cuid())
+  repositoryId  String
+  stableKey     String
+  path          String
+  name          String
+  qualifiedName String
+  kind          String
+  language      String
+  startLine     Int
+  endLine       Int
+  fingerprint   String
+  indexedCommit String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  claims        ClaimLink[]
+
+  @@unique([repositoryId, stableKey])
+  @@index([repositoryId, name])
+}
+
+model ClaimLink {
+  claimId    String
+  symbolId   String
+  match      String
+  confidence Float
+  claim      Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  symbol     Symbol @relation(fields: [symbolId], references: [id], onDelete: Cascade)
+
+  @@id([claimId, symbolId])
+}
+
+model Evidence {
+  id         String      @id @default(cuid())
+  claimId    String
+  commit     String
+  method     String
+  status     ClaimStatus
+  artifact   Json
+  createdAt  DateTime    @default(now())
+  claim      Claim       @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId, createdAt])
+}
+
+// Minimal durable inbox; delivery IDs make GitHub redelivery idempotent.
+// Workers claim pushes with expiring leases and bounded retries.
+model WebhookDelivery {
+  id             String   @id
+  event          String
+  installationId BigInt
+  repositoryId   BigInt?
+  payload        Json
+  receivedAt     DateTime @default(now())
+  processedAt    DateTime?
+  attemptCount   Int      @default(0)
+  nextAttemptAt  DateTime?
+  lastError      String?
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  failedAt       DateTime?
+
+  @@index([processedAt, receivedAt])
+  @@index([event, processedAt, failedAt, nextAttemptAt, leaseExpiresAt])
+}
+
+// Immutable verification attempts; report IDs distinguish explicit reruns from redelivery.
+model VerificationRun {
+  id            String      @id
+  analysisRunId String
+  sourceDigest  String
+  inputDigest   String
+  report        Json
+  createdAt     DateTime    @default(now())
+  analysisRun   AnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+
+  @@index([analysisRunId, createdAt])
+}
+
+// One approved publication per analysis, reserved before any GitHub mutation.
+model RepairPublication {
+  analysisRunId String @id
+  proposalId String
+  leaseToken String?
+  leaseExpiresAt DateTime?
+  pullRequestUrl String?
+  createdAt DateTime @default(now())
+  analysisRun AnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+}

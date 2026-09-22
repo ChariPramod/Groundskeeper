@@ -1,0 +1,27 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.env
+*.pem
+.groundskeeper/
+coverage/
+.DS_Store
+
+.next/
+*.tsbuildinfo
+.env.local
+.env.*.local
+playwright-report/
+test-results/
+.vercel/
+
+# Keep runtime credentials out of source control.
+.env.*
+!.env.example
+*.key
+*.p12
+*.pfx
