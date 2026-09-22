@@ -410,3 +410,7 @@ A Vercel demo deployment is available temporarily at https://temporary-racing-au
 ## 14. Public source and continuous deployment — September 22, 2026
 
 The project now has Git metadata and a public origin at https://github.com/ChariPramod/Groundskeeper. The claimed Vercel project is connected to GitHub and uses `apps/web` as its root. Earlier notes that this workspace lacks Git metadata are historical. See [DEPLOYMENT.md](DEPLOYMENT.md) for build settings and the boundary between the hosted demo and live worker infrastructure.
+
+### First successful remote service validation
+
+[GitHub Actions run 35793655067](https://github.com/ChariPramod/Groundskeeper/actions/runs/35793655067) passed on September 22, 2026 for commit `20aa9b5`: 196 TypeScript tests including five PostgreSQL tests, 91 Python tests, 12 production Chromium checks, four real Docker verification/isolation tests, and one real Docker repair test (304 total). Migration application, contracts, lint, types, builds, formatting, demo and evaluation also passed. The five Docker tests skipped by the ordinary test command ran successfully in the separate Docker steps. This supersedes the earlier lack of service-test evidence, while installed GitHub App end-to-end analysis and actual repair PR publication remain unvalidated.
