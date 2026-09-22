@@ -418,3 +418,7 @@ The project now has Git metadata and a public origin at https://github.com/Chari
 ## Evidence recovery iteration
 
 Added safe explicit import of saved verification artifacts and atomic content-addressed evidence writes. The command preserves report identity and outcomes, validates authoritative source and claims, and relies on transaction-scoped ownership and replay checks. Operator steps and older-artifact compatibility are in [EVIDENCE_RECOVERY.md](EVIDENCE_RECOVERY.md).
+
+## Presentation readiness
+
+Added `/walkthrough`, a shareable five-step illustrative scenario with an unavailable-runtime path and reset control. It uses the existing repair demo fixture, never executes examples or publishes changes, and links back to the dashboard. [PRESENTING.md](PRESENTING.md) supplies a three-minute script, capability boundaries, common questions and the prioritized live-pilot checklist. This makes the implemented prototype easier to present; it does not close the live App/worker deployment or multi-user production gaps.

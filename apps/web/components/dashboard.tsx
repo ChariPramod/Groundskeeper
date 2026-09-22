@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NumberTicker } from "@/components/magicui/number-ticker";
 import { RepairReview } from "@/components/repair-review";
@@ -260,6 +261,9 @@ export function Dashboard({
                 )}
               </button>
             ))}
+            <Link href="/walkthrough" className="nav-item">
+              <BookOpen size={18} /> Product walkthrough
+            </Link>
           </nav>
           <div className="sidebar-bottom">
             <div className="garden-note">

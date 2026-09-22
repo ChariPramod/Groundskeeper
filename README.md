@@ -1,6 +1,6 @@
 # Groundskeeper
 
-[Hosted demo](https://temporary-racing-aurora-75uu7zy.vercel.app) · [Deployment setup](docs/DEPLOYMENT.md)
+[Hosted demo](https://temporary-racing-aurora-75uu7zy.vercel.app) · [Interactive walkthrough](https://temporary-racing-aurora-75uu7zy.vercel.app/walkthrough) · [Presenter guide](docs/PRESENTING.md) · [Deployment setup](docs/DEPLOYMENT.md)
 
 Documentation maintenance backed by evidence: index what docs claim, link those claims to code, detect possible drift, and eventually verify fixes by execution before opening reviewable PRs.
 
