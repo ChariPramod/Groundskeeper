@@ -2,7 +2,7 @@
 
 ## Connected repository deployment
 
-Source: https://github.com/ChariPramod/Groundskeeper (public). The existing claimed Vercel project is connected to this repository. Its root directory is `apps/web`, Node is 22.x, installation uses the frozen pnpm lockfile, and the build generates Prisma before building Next.js. `apps/web/vercel.json` preserves these build commands and explicit demo mode. Pushes to `main` deploy production; pull requests can receive previews through the Vercel Git integration.
+Source: https://github.com/ChariPramod/Groundskeeper (public). The existing claimed Vercel project is configured for this repository; Git linking is pending the account owner connecting GitHub under Vercel Account Settings → Authentication. Its root directory is `apps/web`, Node is 22.x, installation uses the frozen pnpm lockfile, and the build generates Prisma before building Next.js. `apps/web/vercel.json` preserves these build commands and explicit demo mode. After that login connection is added, run `pnpm dlx vercel git connect https://github.com/ChariPramod/Groundskeeper --yes --scope pramod-0491` from the linked project root. Once connected, pushes to `main` deploy production and pull requests can receive previews.
 
 The standalone temporary packaging instructions below are retained as a fallback and are no longer the normal deployment path.
 

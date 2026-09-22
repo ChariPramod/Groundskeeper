@@ -10,6 +10,7 @@
       "!pnpm-lock.yaml",
       "!**/.next",
       "!**/.vercel",
+      "!**/.venv",
       "!**/next-env.d.ts",
       "!**/test-results",
       "!**/playwright-report"

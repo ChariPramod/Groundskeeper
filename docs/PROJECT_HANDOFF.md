@@ -409,4 +409,4 @@ A Vercel demo deployment is available temporarily at https://temporary-racing-au
 
 ## 14. Public source and continuous deployment — September 22, 2026
 
-The project now has Git metadata and a public origin at https://github.com/ChariPramod/Groundskeeper. The claimed Vercel project is connected to that repository with `apps/web` as its root. Earlier notes that this workspace lacks Git metadata are historical. See [DEPLOYMENT.md](DEPLOYMENT.md) for build settings and the boundary between the hosted demo and live worker infrastructure.
+The project now has Git metadata and a public origin at https://github.com/ChariPramod/Groundskeeper. The claimed Vercel project uses `apps/web` as its root; connecting it to GitHub is pending the owner adding the GitHub login connection in Vercel. Earlier notes that this workspace lacks Git metadata are historical. See [DEPLOYMENT.md](DEPLOYMENT.md) for build settings and the boundary between the hosted demo and live worker infrastructure.
