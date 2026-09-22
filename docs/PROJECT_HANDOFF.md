@@ -406,3 +406,7 @@ Missing Docker produced a saved blocked proposal with infrastructure evidence; n
 ## 13. Hosted preview — September 22, 2026
 
 A Vercel demo deployment is available temporarily at https://temporary-racing-aurora-75uu7zy.vercel.app; claim it using the private link in the deployment conversation before expiry to retain it. See [DEPLOYMENT.md](DEPLOYMENT.md) for packaging, redeployment, and remaining live-service boundaries. No GitHub or database credentials were deployed. The actual analysis worker and Docker runtime still require the separate setup above.
+
+## 14. Public source and continuous deployment — September 22, 2026
+
+The project now has Git metadata and a public origin at https://github.com/ChariPramod/Groundskeeper. The claimed Vercel project is connected to that repository with `apps/web` as its root. Earlier notes that this workspace lacks Git metadata are historical. See [DEPLOYMENT.md](DEPLOYMENT.md) for build settings and the boundary between the hosted demo and live worker infrastructure.

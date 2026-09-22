@@ -25,3 +25,5 @@ test-results/
 *.key
 *.p12
 *.pfx
+.vercel
+.env*

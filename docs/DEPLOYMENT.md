@@ -1,5 +1,11 @@
 # Hosted dashboard preview
 
+## Connected repository deployment
+
+Source: https://github.com/ChariPramod/Groundskeeper (public). The existing claimed Vercel project is connected to this repository. Its root directory is `apps/web`, Node is 22.x, installation uses the frozen pnpm lockfile, and the build generates Prisma before building Next.js. `apps/web/vercel.json` preserves these build commands and explicit demo mode. Pushes to `main` deploy production; pull requests can receive previews through the Vercel Git integration.
+
+The standalone temporary packaging instructions below are retained as a fallback and are no longer the normal deployment path.
+
 The preview deploys the Next.js web interface in explicit demo mode. It includes search/filtering, repository and queue views, evidence details, local review annotations, JSON export, and illustrative repair diffs. It does not execute Docker jobs, process webhooks, or publish GitHub repairs. Browser notes stay on the current browser and origin.
 
 ## Rebuild the Vercel preview

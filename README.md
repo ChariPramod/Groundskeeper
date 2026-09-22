@@ -1,5 +1,7 @@
 # Groundskeeper
 
+[Hosted demo](https://temporary-racing-aurora-75uu7zy.vercel.app) · [Deployment setup](docs/DEPLOYMENT.md)
+
 Documentation maintenance backed by evidence: index what docs claim, link those claims to code, detect possible drift, and eventually verify fixes by execution before opening reviewable PRs.
 
 **Status: local analysis, review, and verified repair workflow implemented.** Commit-pinned analysis and isolated Python verification now feed a detailed review workspace and bounded repair artifacts. Explicit CLI commands can independently reverify a repair and open a draft PR, or analyze an existing same-repository PR and publish a neutral informational check. Successful real Docker/Postgres/GitHub validation remains pending. See the [repair workflow](docs/REPAIR_WORKFLOW.md) and [operator handoff](docs/PROJECT_HANDOFF.md).
