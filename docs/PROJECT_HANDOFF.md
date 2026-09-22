@@ -24,7 +24,7 @@ The most valuable next milestone is a real development-installation run through 
 | Push worker | Finite batch, installation authentication, exact commit snapshots, blob-hash checks, size/deadline limits, atomic leases, bounded retries, terminal recovery and replay recovery | Live concurrency checks, full indexing and continuous scheduling remain pending |
 | Analysis persistence | Immutable reports, installation-scoped identity and delivery idempotency | Worker stores report snapshots rather than rebuilding mutable Page/Claim tables |
 | Stored-run verification | Loads owned analysis, refetches its exact after-commit, selects affected code/session members, writes local artifact before persistence | Explicit invocation; not automatic on every push; unaffected prose/code is outside coverage |
-| Evidence persistence | Immutable verification attempts, ownership/commit/claim/session integrity checks, idempotent report replay | Local artifacts have no automatic recovery/import command if persistence fails |
+| Evidence persistence | Immutable verification attempts, ownership/commit/claim/session integrity checks, idempotent report replay | Explicit `verify:import` validates and replays saved evidence without executing examples |
 | Change limits | Validated contracts and preflight guards: 3 pages, 1 PR, 150 changed lines by default | Publisher enforces atomic reservation and independent QA; real PostgreSQL/GitHub validation pending |
 | Quality checks | TS/Python tests, lint/type/format/build checks, generated contracts, synthetic drift evaluation, opt-in service tests in CI | Fixtures and simulated transports do not establish production accuracy or isolation |
 | Visual workspace | Next.js/TypeScript/Tailwind v4 dashboard, searchable activity, evidence dialogs, repository drill-down, queue inspection and JSON export | Demo works locally; live reads require installation-scoped token setup; no browser mutations or hosted accounts |
@@ -260,7 +260,7 @@ docker compose exec -T postgres psql -U groundskeeper -d groundskeeper -c 'SELEC
 docker compose exec -T postgres psql -U groundskeeper -d groundskeeper -c 'SELECT id, "analysisRunId", "sourceDigest" FROM "VerificationRun" ORDER BY "createdAt" DESC LIMIT 10;'
 ```
 
-A second explicit verification creates a new attempt ID. Redelivery of the same GitHub delivery must not create a second analysis. Keep local artifacts if persistence fails; they are written first, but automatic re-import is not available yet.
+A second explicit verification creates a new attempt ID. Redelivery of the same GitHub delivery must not create a second analysis. Keep local artifacts if persistence fails; they are written first, but explicit recovery is available via `verify:import`; see [EVIDENCE_RECOVERY.md](EVIDENCE_RECOVERY.md).
 
 ## 6. How to interpret results
 
@@ -310,7 +310,7 @@ Exit 0 means no observed failures and may include skipped/empty work; exit 1 mea
 | GitHub auth/repository error | Check App ID versus installation ID, actual PEM contents or configured key-file path, selected repository access and read permissions |
 | Worker reports only an error class | Source/secret-bearing details are deliberately not retained in inbox error messages; inspect delivery identity and readiness first |
 | Analysis exists but evidence does not | Verification is an explicit separate command; confirm ownership and exact run ID |
-| Artifact exists after persistence failure | Retain it; investigate DB failure. A new explicit run is a new attempt; automated artifact recovery is pending |
+| Artifact exists after persistence failure | Retain it; investigate DB failure. A new explicit run is a new attempt; use `verify:import` with the original analysis, installation, artifact and checksum |
 | Test command passes but service tests skipped | Supply explicit test DB URL and use `pnpm test:integration`; ordinary checks are insufficient |
 | Contract diff/CI cannot run locally | This directory lacks `.git`; establish the intended checkout without losing current work |
 
@@ -347,7 +347,7 @@ Atomic queue leases, bounded attempts, terminal markers, safe metadata inspectio
 
 ### P1: recover execution evidence safely
 
-Add a validated artifact import/retry command so a successful execution whose DB write failed can be persisted without executing again. Preserve tenant, commit, selected-claim and session integrity checks. Acceptance: exact report replay is idempotent and conflicts/reassignment are rejected.
+Implemented `verify:import`: bounded checksum-checked reads, pinned GitHub source validation, claim/session/evidence checks, and immutable idempotent persistence. No Docker execution or GitHub writes occur. See [EVIDENCE_RECOVERY.md](EVIDENCE_RECOVERY.md). Hosted storage and signed provenance remain future work.
 
 ### P2: increase useful verification coverage
 
@@ -414,3 +414,7 @@ The project now has Git metadata and a public origin at https://github.com/Chari
 ### First successful remote service validation
 
 [GitHub Actions run 35793655067](https://github.com/ChariPramod/Groundskeeper/actions/runs/35793655067) passed on September 22, 2026 for commit `20aa9b5`: 196 TypeScript tests including five PostgreSQL tests, 91 Python tests, 12 production Chromium checks, four real Docker verification/isolation tests, and one real Docker repair test (304 total). Migration application, contracts, lint, types, builds, formatting, demo and evaluation also passed. The five Docker tests skipped by the ordinary test command ran successfully in the separate Docker steps. This supersedes the earlier lack of service-test evidence, while installed GitHub App end-to-end analysis and actual repair PR publication remain unvalidated.
+
+## Evidence recovery iteration
+
+Added safe explicit import of saved verification artifacts and atomic content-addressed evidence writes. The command preserves report identity and outcomes, validates authoritative source and claims, and relies on transaction-scoped ownership and replay checks. Operator steps and older-artifact compatibility are in [EVIDENCE_RECOVERY.md](EVIDENCE_RECOVERY.md).

@@ -36,7 +36,8 @@
     "repair:publish": "tsx apps/github/src/repair-main.ts publish",
     "repair:demo": "tsx apps/github/src/repair-demo.ts",
     "pr:analyze": "tsx apps/github/src/pr-main.ts analyze",
-    "check:run": "tsx apps/github/src/pr-main.ts check"
+    "check:run": "tsx apps/github/src/pr-main.ts check",
+    "verify:import": "tsx apps/github/src/verification-import-main.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.4",

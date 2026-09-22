@@ -4,7 +4,7 @@ import sys
 
 from pydantic import Field, model_validator
 
-from groundskeeper.models import AnalysisReport, Model, SourceFile
+from groundskeeper.models import AnalysisReport, Claim, Model, SourceFile
 from groundskeeper.verification.docker import DEFAULT_IMAGE, Sandbox
 from groundskeeper.verification.models import SandboxLimits, VerificationReport
 from groundskeeper.verification.service import verify
@@ -34,26 +34,18 @@ class WorkerVerificationRequest(Model):
         return self
 
 
-def verify_analysis(
-    request: WorkerVerificationRequest, sandbox: Sandbox | None = None
-) -> VerificationReport:
-    """Verify affected code and its explicitly declared tutorial session.
-
-    The caller supplies the Python files from the same immutable head used by analysis.
-    The resulting digest binds evidence to these supplied bytes; this bridge does not
-    fetch a repository or establish that the caller supplied a particular Git commit.
-    """
-    snapshot = Snapshot.create(request.sources)
-    affected = {impact.claim_id for impact in request.analysis.impacts}
+def select_claims(analysis: AnalysisReport) -> list[Claim]:
+    """Select affected code and complete tutorial sessions without executing anything."""
+    affected = {impact.claim_id for impact in analysis.impacts}
     affected_sessions = {
         (claim.page, claim.session)
-        for claim in request.analysis.claims
+        for claim in analysis.claims
         if claim.kind == "code" and claim.id in affected and claim.session is not None
     }
-    claims = sorted(
+    return sorted(
         (
             claim
-            for claim in request.analysis.claims
+            for claim in analysis.claims
             if claim.kind == "code"
             and (claim.id in affected or (claim.page, claim.session) in affected_sessions)
         ),
@@ -66,6 +58,19 @@ def verify_analysis(
             claim.id,
         ),
     )
+
+
+def verify_analysis(
+    request: WorkerVerificationRequest, sandbox: Sandbox | None = None
+) -> VerificationReport:
+    """Verify affected code and its explicitly declared tutorial session.
+
+    The caller supplies the Python files from the same immutable head used by analysis.
+    The resulting digest binds evidence to these supplied bytes; this bridge does not
+    fetch a repository or establish that the caller supplied a particular Git commit.
+    """
+    snapshot = Snapshot.create(request.sources)
+    claims = select_claims(request.analysis)
     return verify(claims, snapshot, image=request.image, limits=request.limits, sandbox=sandbox)
 
 

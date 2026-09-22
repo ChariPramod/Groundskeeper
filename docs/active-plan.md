@@ -63,3 +63,7 @@ Added explicit draft PR publishing with fresh verification, exact snapshot/image
 Validation: **294 tests passed** (191 TypeScript, 91 Python, 12 production Chromium); **10 service tests skipped** (five Postgres, five Docker). Schema validation and production web build passed. Missing Docker was exercised through the real repair demo and produced a blocked artifact. Successful real service operation and remote draft/check creation remain pending. See [REPAIR_WORKFLOW.md](REPAIR_WORKFLOW.md) for commands and recovery, and [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) for operator tasks.
 
 Next: run the development-repository service smoke test; then prioritize shared review history, installation/PR lifecycle processing, measured verification coverage, and hosted authorization. Earlier validation totals below/above record historical iterations.
+
+## Evidence recovery iteration
+
+Implemented `pnpm verify:import` to restore saved execution reports after database failures without rerunning examples. Added bounded checksum-checked artifact reads, shared affected-claim selection, source/claim/tutorial validation, original identity preservation, safe errors and atomic immutable evidence writes. See [EVIDENCE_RECOVERY.md](EVIDENCE_RECOVERY.md) for commands and trust boundaries.

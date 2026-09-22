@@ -7,7 +7,10 @@ export async function analyzeLocally(request: AnalysisRequest): Promise<Analysis
 }
 
 export async function runPythonJson<T>(
-  module: "groundskeeper.worker_analysis" | "groundskeeper.worker_verification",
+  module:
+    | "groundskeeper.worker_analysis"
+    | "groundskeeper.worker_verification"
+    | "groundskeeper.verification_import",
   request: unknown,
   timeoutMs: number,
 ): Promise<T> {

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { AnalysisReport } from "@groundskeeper/contracts";
@@ -6,6 +6,7 @@ import { type Prisma, PrismaClient, storeVerificationRun } from "@groundskeeper/
 import { Probot } from "probot";
 import { loadPrivateKey } from "./credentials.js";
 import { workspaceRoot } from "./environment.js";
+import { writeImmutableJson } from "./repairs/artifacts.js";
 import { GitHubSnapshots } from "./snapshots.js";
 import { verifyLocally, verifyStoredRun } from "./verify-run.js";
 
@@ -64,14 +65,19 @@ async function main() {
         execute: verifyLocally,
         saveArtifact: async (report) => {
           if (!/^[a-f0-9]{32}$/.test(report.id)) throw new Error("Invalid evidence report ID");
-          const directory = ".groundskeeper/verifications";
-          await mkdir(directory, { recursive: true });
-          const path = join(directory, `${report.id}.json`);
-          await writeFile(path, `${JSON.stringify(report, null, 2)}\n`, {
-            flag: "wx",
-            mode: 0o600,
-          });
+          const digest = createHash("sha256")
+            .update(`${JSON.stringify(report, null, 2)}\n`)
+            .digest("hex");
+          const path = await writeImmutableJson(
+            join(workspaceRoot, ".groundskeeper/verifications"),
+            digest,
+            report,
+          );
           console.log(`Evidence artifact: ${path}`);
+          console.log(`Evidence SHA-256: ${digest}`);
+          console.log(
+            "Recovery: pnpm verify:import --analysis-run <same-analysis-id> --installation-id <same-installation-id> --artifact <path-above> --sha256 <digest-above>",
+          );
         },
         persist: (input) =>
           storeVerificationRun(database, {
