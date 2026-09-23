@@ -11,7 +11,7 @@
 
 ## Infrastructure needed from the account owner
 
-1. Choose/connect PostgreSQL and a persistent worker host. Neon and Railway were suggested; the hosting budget and account connections are pending. Do not place credentials in git or chat: configure secrets in the hosting services.
+1. Choose/connect PostgreSQL and a persistent worker host. Neon and Railway were suggested. The owner has confirmed **free tiers only ($0 paid spend)**; account connections are still pending. Do not upgrade plans, enable paid overages, or assume trial credits sustain an always-on worker. Railway currently provides $1/month credit after its limited trial; verify quota behavior before deployment and allow processing to pause at the free limit. See [Railway free-plan terms](https://docs.railway.com/pricing/free-trial). Do not place credentials in git or chat: configure secrets in the hosting services.
 2. Configure a GitHub App installation and its credentials for webhook ingress and background repository reads. Supply the webhook secret to ingress, and the App identity/private key to the worker through secret storage.
 3. Configure the database connection in web, ingress, and worker runtimes; run `pnpm db:migrate` before enabling live mode.
 4. Register a GitHub OAuth application with the deployed origin and `/api/auth/callback`. Configure the values listed in `TEAM_ACCESS.md`, then grant the first member with `pnpm team:access`.
