@@ -4,6 +4,7 @@ import {
   createTeamSession,
   readTeamSession,
   revokeTeamSession,
+  type TeamDatabase,
 } from "@groundskeeper/database/team-access";
 
 type Env = Record<string, string | undefined>;
@@ -53,7 +54,7 @@ const equal = (a: string, b: string) =>
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 const sign = (value: string, secret: string) =>
   createHmac("sha256", secret).update(value).digest("base64url");
-async function withDb<T>(url: string, fn: (db: PrismaClient) => Promise<T>) {
+async function withDb<T>(url: string, fn: (db: TeamDatabase) => Promise<T>) {
   const parsed = new URL(url);
   if (!["postgres:", "postgresql:"].includes(parsed.protocol)) throw new Error("Invalid database");
   parsed.searchParams.set("connect_timeout", "5");
@@ -61,7 +62,7 @@ async function withDb<T>(url: string, fn: (db: PrismaClient) => Promise<T>) {
   parsed.searchParams.set("connection_limit", "1");
   const db = new PrismaClient({ datasources: { db: { url: parsed.toString() } } });
   try {
-    return await fn(db);
+    return await db.$transaction((tx) => fn(tx), { maxWait: 5_000, timeout: 5_000 });
   } finally {
     await db.$disconnect();
   }

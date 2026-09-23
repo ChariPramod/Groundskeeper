@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
+export type TeamDatabase = Pick<PrismaClient, "teamMember" | "teamSession" | "workspace">;
 export const sessionHash = (token: string) => createHash("sha256").update(token).digest("hex");
 export async function createTeamSession(
-  db: PrismaClient,
+  db: TeamDatabase,
   installationId: bigint,
   githubUserId: bigint,
   login: string,
@@ -23,7 +24,7 @@ export async function createTeamSession(
   });
   return token;
 }
-export async function readTeamSession(db: PrismaClient, installationId: bigint, token: string) {
+export async function readTeamSession(db: TeamDatabase, installationId: bigint, token: string) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   return db.teamSession.findFirst({
     where: {
@@ -34,11 +35,11 @@ export async function readTeamSession(db: PrismaClient, installationId: bigint, 
     select: { githubUserId: true, login: true },
   });
 }
-export async function revokeTeamSession(db: PrismaClient, token: string) {
+export async function revokeTeamSession(db: TeamDatabase, token: string) {
   await db.teamSession.deleteMany({ where: { tokenHash: sessionHash(token) } });
 }
 export async function setTeamMembership(
-  db: PrismaClient,
+  db: TeamDatabase,
   installationId: bigint,
   githubUserId: bigint,
   enabled: boolean,
