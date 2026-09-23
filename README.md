@@ -1,10 +1,10 @@
 # Groundskeeper
 
-[Hosted demo](https://temporary-racing-aurora-75uu7zy.vercel.app) · [Interactive walkthrough](https://temporary-racing-aurora-75uu7zy.vercel.app/walkthrough) · [Presenter guide](docs/PRESENTING.md) · [Deployment setup](docs/DEPLOYMENT.md)
+[Hosted demo](https://temporary-racing-aurora-75uu7zy.vercel.app) · [Interactive walkthrough](https://temporary-racing-aurora-75uu7zy.vercel.app/walkthrough) · [Product readiness](docs/PRODUCT_READINESS.md) · [Deployment setup](docs/DEPLOYMENT.md)
 
 Documentation maintenance backed by evidence: index what docs claim, link those claims to code, detect possible drift, and eventually verify fixes by execution before opening reviewable PRs.
 
-**Status: local analysis, review, and verified repair workflow implemented.** Commit-pinned analysis and isolated Python verification now feed a detailed review workspace and bounded repair artifacts. Explicit CLI commands can independently reverify a repair and open a draft PR, or analyze an existing same-repository PR and publish a neutral informational check. Successful real Docker/Postgres/GitHub validation remains pending. See the [repair workflow](docs/REPAIR_WORKFLOW.md) and [operator handoff](docs/PROJECT_HANDOFF.md).
+**Status: local analysis, review, and verified repair workflow implemented.** Commit-pinned analysis and isolated Python verification now feed a detailed review workspace and bounded repair artifacts. Explicit CLI commands can independently reverify a repair and open a draft PR, or analyze an existing same-repository PR and publish a neutral informational check. CI exercises real Docker and PostgreSQL; a hosted GitHub-to-worker pilot remains pending. See the [repair workflow](docs/REPAIR_WORKFLOW.md) and [operator handoff](docs/PROJECT_HANDOFF.md).
 
 ## Run the demo
 
@@ -218,7 +218,7 @@ A local read-only dashboard is now implemented by explicit scope expansion. Scre
 
 ## Active iterations and evaluation
 
-The [active plan](docs/active-plan.md) sequences incoming-change analysis, execution evidence, public-repository evaluation, then reviewable repairs. Run `pnpm eval` for the deterministic synthetic drift gate: 18 cases and 36 labels, covering both Python and TypeScript. Its baseline is 10 true positives and 26 true negatives with no mismatches; these are small synthetic fixtures, not evidence of public-repository accuracy. See [evaluation details](docs/evaluation.md).
+The [active plan](docs/active-plan.md) sequences incoming-change analysis, execution evidence, public-repository evaluation, then reviewable repairs. Run `pnpm eval` for the deterministic synthetic drift gate: 38 cases across 19 categories, with 72 scored pairs and two syntax-rejection cases covering Python and TypeScript. Its baseline is 22 true positives and 50 true negatives with no mismatches; these are small synthetic fixtures, not evidence of public-repository accuracy. See [evaluation details](docs/evaluation.md).
 
 ## Setup readiness and handoff
 
@@ -252,3 +252,7 @@ The browser suite builds and tests the production app, including mobile/reduced-
 ## Pull-request analysis from webhooks
 
 `pnpm worker --limit 5` now consumes both push and pull-request events. PR jobs pin webhook base/head identities, analyze the merge base against the head, and reuse the existing leases, bounded retry and immutable report persistence. Use `--event pull_request` to process only PR jobs and `pnpm queue --event pull_request --installation-id <id>` for queue operations. See [PR worker behavior and recovery](docs/PULL_REQUEST_WORKER.md).
+
+### Operational and team access increment
+
+`pnpm worker:serve` supervises continuous background analysis with bounded batches, graceful shutdown, retries and health endpoints. GitHub OAuth sessions and explicit installation membership support team reads; `pnpm team:access` manages membership. `/api/health` reports web readiness without calling demo data live. `pnpm test:hosted` exercises a built production server against a migrated `DATABASE_TEST_URL`, including cross-tenant denial. See [current product readiness and remaining work](docs/PRODUCT_READINESS.md), [worker operations](docs/WORKER_OPERATIONS.md), and [team setup](docs/TEAM_ACCESS.md).

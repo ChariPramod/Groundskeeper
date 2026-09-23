@@ -114,7 +114,7 @@ export async function repairReviewResponse(
   }
   if (env.DASHBOARD_MODE !== "live")
     return response({ error: "Repair review is not configured." }, 503);
-  const access = authorizeDashboard(request, env);
+  const access = await authorizeDashboard(request, env);
   if (access instanceof Response) return access;
   try {
     const artifact = mapRepairArtifact(await read(digest), digest, access.installationId);

@@ -2,10 +2,11 @@ import { timingSafeEqual } from "node:crypto";
 import { PrismaClient } from "@groundskeeper/database/client";
 import type { DashboardData, DashboardRun, EvidenceStatus } from "./dashboard-types";
 import { getDemoDashboard } from "./demo-data";
+import { teamAccess, teamAuthEnabled } from "./team-auth";
 
 type Environment = Record<string, string | undefined>;
 type Reader = (installationId: bigint, databaseUrl: string) => Promise<DashboardData>;
-const headers = { "Cache-Control": "no-store", Vary: "Authorization" };
+const headers = { "Cache-Control": "no-store", Vary: "Authorization, Cookie" };
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -113,7 +114,7 @@ export async function readLiveDashboard(
           },
         });
         const deliveries = await tx.webhookDelivery.findMany({
-          where: { installationId, event: "push", processedAt: null },
+          where: { installationId, event: { in: ["push", "pull_request"] }, processedAt: null },
           take: 50,
           orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
           select: {
@@ -174,7 +175,7 @@ export async function dashboardResponse(
       { error: "Dashboard mode is not configured correctly." },
       { status: 503, headers },
     );
-  const access = authorizeDashboard(request, env);
+  const access = await authorizeDashboard(request, env);
   if (access instanceof Response) return access;
   const { installationId, databaseUrl } = access;
   try {
@@ -188,10 +189,13 @@ export async function dashboardResponse(
 }
 
 /** Shared fail-closed access boundary for dashboard and detailed review reads. */
-export function authorizeDashboard(
+export async function authorizeDashboard(
   request: Request,
   env: Environment,
-): Response | { installationId: bigint; databaseUrl: string } {
+): Promise<
+  Response | { installationId: bigint; databaseUrl: string; githubUserId?: bigint; login?: string }
+> {
+  if (teamAuthEnabled(env)) return teamAccess(request, env);
   const token = env.DASHBOARD_ACCESS_TOKEN;
   const installation = env.DASHBOARD_INSTALLATION_ID;
   if (

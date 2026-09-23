@@ -2,7 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @groundskeeper/database generate && pnpm build",
-  "env": { "DASHBOARD_MODE": "demo" },
-  "build": { "env": { "DASHBOARD_MODE": "demo" } }
+  "buildCommand": "pnpm --filter @groundskeeper/database generate && pnpm build"
 }

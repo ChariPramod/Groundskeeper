@@ -130,7 +130,7 @@ export async function reviewResponse(
   }
   if (env.DASHBOARD_MODE !== "live")
     return response({ error: "Review mode is not configured correctly." }, 503);
-  const access = authorizeDashboard(request, env);
+  const access = await authorizeDashboard(request, env);
   if (access instanceof Response) return access;
   try {
     const result = await read(id, access.installationId, access.databaseUrl);

@@ -20,6 +20,7 @@ model Workspace {
   account        String
   createdAt      DateTime     @default(now())
   repositories   Repository[]
+  teamMembers    TeamMember[]
 }
 
 model Repository {
@@ -179,4 +180,25 @@ model RepairPublication {
   pullRequestUrl String?
   createdAt DateTime @default(now())
   analysisRun AnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+}
+
+// Explicit installation allowlist; numeric GitHub identities survive login renames.
+model TeamMember {
+  workspaceId String
+  githubUserId BigInt
+  createdAt DateTime @default(now())
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sessions TeamSession[]
+  @@id([workspaceId, githubUserId])
+}
+
+model TeamSession {
+  tokenHash String @id
+  workspaceId String
+  githubUserId BigInt
+  login String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  member TeamMember @relation(fields: [workspaceId, githubUserId], references: [workspaceId, githubUserId], onDelete: Cascade)
+  @@index([expiresAt])
 }

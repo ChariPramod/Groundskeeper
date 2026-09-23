@@ -37,7 +37,10 @@
     "repair:demo": "tsx apps/github/src/repair-demo.ts",
     "pr:analyze": "tsx apps/github/src/pr-main.ts analyze",
     "check:run": "tsx apps/github/src/pr-main.ts check",
-    "verify:import": "tsx apps/github/src/verification-import-main.ts"
+    "verify:import": "tsx apps/github/src/verification-import-main.ts",
+    "worker:serve": "tsx apps/github/src/worker-serve.ts",
+    "team:access": "tsx packages/database/src/team-main.ts",
+    "test:hosted": "tsx scripts/test-live-dashboard.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.2.4",

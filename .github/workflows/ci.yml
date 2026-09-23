@@ -49,8 +49,19 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Test dashboard interactions and recovery
         run: pnpm exec playwright test
+      - name: Verify production dashboard against PostgreSQL
+        run: pnpm test:hosted
+      - name: Build deployable background worker
+        run: docker build -f deploy/worker.Dockerfile -t groundskeeper-worker .
       - run: pnpm demo
-      - run: pnpm eval
+      - run: pnpm eval --output evaluation-report.json
+      - name: Retain evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-report
+          path: evaluation-report.json
+          if-no-files-found: ignore
       - name: Prepare explicit sandbox runtime
         run: docker pull python:3.12-slim
       - name: Verify examples and container isolation against real Docker

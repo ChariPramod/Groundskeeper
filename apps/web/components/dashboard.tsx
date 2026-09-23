@@ -110,11 +110,25 @@ function download(data: DashboardData) {
 export function Dashboard({
   initialData,
   liveConfigured,
+  teamAuth = false,
 }: {
   initialData: DashboardData | null;
   liveConfigured: boolean;
+  teamAuth?: boolean;
 }) {
   const [data, setData] = useState(initialData);
+  useEffect(() => {
+    if (!teamAuth) return;
+    let active = true;
+    void fetchDashboard("")
+      .then((result) => {
+        if (active) setData(result);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [teamAuth]);
   const [view, setView] = useState<View>("Overview");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -405,8 +419,7 @@ export function Dashboard({
                 </span>
                 <h2>Your workspace is ready to connect.</h2>
                 <p>
-                  Use your access token to load live reports, or take a look around with sample
-                  data.
+                  Sign in or connect your access token to load live reports, or explore sample data.
                 </p>
                 <Button onClick={openSettings}>
                   Connect workspace <ArrowRight size={16} />
@@ -938,7 +951,25 @@ export function Dashboard({
               <span className="legend-dot" />
               {liveConfigured ? "Server requests live data" : "Server running in demo mode"}
             </div>
-            {liveConfigured ? (
+            {teamAuth ? (
+              <div className="setup-steps">
+                <p>
+                  Sign in with an approved GitHub account to view this installation. Access is
+                  managed by your operator.
+                </p>
+                <a className="text-link" href="/api/auth/login">
+                  Sign in with GitHub →
+                </a>
+                <Button onClick={() => void refresh()} disabled={busy}>
+                  Load signed-in workspace
+                </Button>
+                <form action="/api/auth/logout" method="post">
+                  <Button type="submit" variant="outline">
+                    Sign out
+                  </Button>
+                </form>
+              </div>
+            ) : liveConfigured ? (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();

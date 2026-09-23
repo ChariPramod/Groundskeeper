@@ -8,7 +8,9 @@ from groundskeeper.evaluation import evaluate
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Evaluate synthetic candidate-drift labels")
+    parser = argparse.ArgumentParser(
+        description="Evaluate authored candidate labels and safety boundaries"
+    )
     parser.add_argument("--output", type=Path, help="Also write the JSON report to this path")
     args = parser.parse_args()
     report = evaluate()

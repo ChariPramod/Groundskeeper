@@ -196,7 +196,11 @@ describe("live query boundaries", () => {
       }),
     );
     const queueQuery = database.webhookDelivery.findMany.mock.lastCall?.[0];
-    expect(queueQuery.where).toEqual({ installationId: 42n, event: "push", processedAt: null });
+    expect(queueQuery.where).toEqual({
+      installationId: 42n,
+      event: { in: ["push", "pull_request"] },
+      processedAt: null,
+    });
     expect(queueQuery.take).toBe(50);
     expect(queueQuery.select).not.toHaveProperty("payload");
     expect(queueQuery.select).not.toHaveProperty("lastError");

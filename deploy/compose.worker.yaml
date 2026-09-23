@@ -1,0 +1,25 @@
+# Use with root compose.yaml; this is a local/pilot reference, not managed production infrastructure.
+services:
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/worker.Dockerfile
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 40s
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://groundskeeper:groundskeeper@postgres:5432/groundskeeper
+      WORKER_HEALTH_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 1g
+    cpus: 1.0
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

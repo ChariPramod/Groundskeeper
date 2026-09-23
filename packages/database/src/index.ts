@@ -25,6 +25,13 @@ export {
   reserveRepairPublication,
 } from "./repair-publications.js";
 export {
+  createTeamSession,
+  readTeamSession,
+  revokeTeamSession,
+  sessionHash,
+  setTeamMembership,
+} from "./team-access.js";
+export {
   type StoreVerificationRunInput,
   storeVerificationRun,
   VerificationRunConflictError,
