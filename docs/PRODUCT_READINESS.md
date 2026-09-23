@@ -34,3 +34,9 @@
 - Repair artifacts still live on the operator filesystem; durable artifact storage, retention, and hosted retrieval remain required for a fully hosted repair workflow.
 
 Nothing is described as break-proof. Tests cover specific safety and recovery properties; hosted operational claims require the acceptance evidence above.
+
+## Validation record (2026-09-22)
+
+Local validation passed lint, TypeScript checks, production Next build, 238 TypeScript tests (eight service-dependent tests skipped), 109 Python tests (four Docker tests skipped), the authored evaluation gate, and 14 dashboard browser tests. Additional authentication tests exercise bounded database transactions and sanitized timeout failures.
+
+GitHub CI exercised the new real PostgreSQL production-server/browser smoke successfully on `b1e311c`. Vercel deployed that revision successfully; a browser check loaded five demo rows without page errors. Public health returned `mode: demo`, `liveReady: false`; the unconfigured OAuth endpoint returned 503 as intended. These observations verify the hosted demo, not a live GitHub installation or background worker. See subsequent CI runs for final container and service validation of the latest revision.
