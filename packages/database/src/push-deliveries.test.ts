@@ -1,18 +1,25 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
 import {
-  ackPush,
-  claimNextPush,
-  failPush,
+  ackDelivery,
+  claimNextDelivery,
+  failDelivery,
   PrismaClient,
   PushLeaseLostError,
-  retryFailedPush,
+  retryFailedDelivery,
   storeAnalysisRun,
 } from "./index.js";
 
-it.skipIf(!process.env.DATABASE_TEST_URL)(
-  "fences concurrent claims, persistence and acknowledgements; bounds retry and recovers terminal pushes",
-  async () => {
+it.skipIf(!process.env.DATABASE_TEST_URL).each(["push", "pull_request"] as const)(
+  "fences concurrent claims, persistence and acknowledgements; bounds retry and recovers terminal %s deliveries",
+  async (event) => {
+    const claimNextPush = (db: PrismaClient) => claimNextDelivery(db, event);
+    const ackPush = (db: PrismaClient, id: string, token: string) =>
+      ackDelivery(db, id, token, event);
+    const failPush = (db: PrismaClient, id: string, token: string, error: string) =>
+      failDelivery(db, id, token, error, event);
+    const retryFailedPush = (db: PrismaClient, id: string, installation: bigint) =>
+      retryFailedDelivery(db, id, installation, event);
     const admin = new PrismaClient({ datasourceUrl: process.env.DATABASE_TEST_URL });
     const schema = `leases_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(process.env.DATABASE_TEST_URL as string);
@@ -33,18 +40,27 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       await database.webhookDelivery.createMany({
         data: ids.map((id) => ({
           id,
-          event: "push",
+          event,
           installationId,
           payload: {},
           receivedAt: new Date(0),
         })),
       });
-      const claims = await Promise.all([claimNextPush(database), claimNextPush(other)]);
+      const claims = await Promise.all([claimNextDelivery(database, "all"), claimNextPush(other)]);
       expect(new Set(claims.map((claim) => claim?.id))).toEqual(new Set(ids));
       const first = claims[0];
       const second = claims[1];
       if (!first?.leaseToken || !second?.leaseToken) throw new Error("Claims missing leases");
       expect(first.attemptCount).toBe(1);
+      expect(await claimNextDelivery(other, event === "push" ? "pull_request" : "push")).toBeNull();
+      expect(
+        await ackDelivery(
+          database,
+          first.id,
+          first.leaseToken,
+          event === "push" ? "pull_request" : "push",
+        ),
+      ).toBe(false);
       expect(await ackPush(database, first.id, "wrong-token")).toBe(false);
       expect(await ackPush(database, second.id, second.leaseToken)).toBe(true);
       expect(await claimNextPush(other)).toBeNull();
@@ -65,11 +81,11 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         afterCommit: "b".repeat(40),
         report: {},
       };
-      await expect(storeAnalysisRun(database, input, first.leaseToken)).rejects.toBeInstanceOf(
-        PushLeaseLostError,
-      );
+      await expect(
+        storeAnalysisRun(database, input, first.leaseToken, event),
+      ).rejects.toBeInstanceOf(PushLeaseLostError);
       expect(await database.analysisRun.count({ where: { deliveryId: first.id } })).toBe(0);
-      const stored = await storeAnalysisRun(database, input, reclaimed.leaseToken);
+      const stored = await storeAnalysisRun(database, input, reclaimed.leaseToken, event);
       expect(stored.created).toBe(true);
       expect(await failPush(database, first.id, reclaimed.leaseToken, "secret value")).toBe(true);
       const retrying = await database.webhookDelivery.findUniqueOrThrow({
@@ -87,7 +103,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       const finalAttempt = await claimNextPush(database);
       expect(finalAttempt?.attemptCount).toBe(5);
       if (!finalAttempt?.leaseToken) throw new Error("Missing final lease");
-      expect(await storeAnalysisRun(database, input, finalAttempt.leaseToken)).toEqual({
+      expect(await storeAnalysisRun(database, input, finalAttempt.leaseToken, event)).toEqual({
         runId: stored.runId,
         created: false,
       });
@@ -102,7 +118,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       const recovered = await claimNextPush(database);
       expect(recovered?.attemptCount).toBe(1);
       if (!recovered?.leaseToken) throw new Error("Missing recovery lease");
-      expect(await storeAnalysisRun(database, input, recovered.leaseToken)).toEqual({
+      expect(await storeAnalysisRun(database, input, recovered.leaseToken, event)).toEqual({
         runId: stored.runId,
         created: false,
       });

@@ -60,6 +60,7 @@ export async function storeAnalysisRun(
   database: PrismaClient,
   input: StoreAnalysisRunInput,
   leaseToken?: string,
+  event: "push" | "pull_request" = "push",
 ): Promise<{ runId: string; created: boolean }> {
   validate(input);
   const beforeCommit = input.beforeCommit.toLowerCase();
@@ -87,7 +88,7 @@ export async function storeAnalysisRun(
         if (leaseToken !== undefined) {
           const owned = await tx.$queryRaw<{ id: string }[]>`
             SELECT id FROM "WebhookDelivery"
-            WHERE id = ${input.deliveryId} AND event = 'push' AND "leaseToken" = ${leaseToken}
+            WHERE id = ${input.deliveryId} AND event = ${event} AND "leaseToken" = ${leaseToken}
               AND "leaseExpiresAt" > clock_timestamp() AND "processedAt" IS NULL AND "failedAt" IS NULL
             FOR UPDATE
           `;

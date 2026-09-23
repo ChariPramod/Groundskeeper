@@ -7,6 +7,13 @@ export interface PullAnalysisInput {
   installationId: bigint;
   repositoryId: bigint;
   pullNumber: number;
+  expectedCommits?: { base: string; head: string };
+}
+export class PullRequestNotAnalyzableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PullRequestNotAnalyzableError";
+  }
 }
 export async function analyzePullRequest(
   input: PullAnalysisInput,
@@ -46,9 +53,14 @@ export async function analyzePullRequest(
     String(pull.base?.repo?.id) !== input.repositoryId.toString() ||
     String(pull.head?.repo?.id) !== input.repositoryId.toString()
   )
-    throw new Error(
+    throw new PullRequestNotAnalyzableError(
       "Only open same-repository pull requests are supported; forks require separate access handling",
     );
+  if (
+    input.expectedCommits &&
+    (pull.base.sha !== input.expectedCommits.base || pull.head.sha !== input.expectedCommits.head)
+  )
+    throw new PullRequestNotAnalyzableError("Pull request delivery has been superseded");
   for (const sha of [pull.base.sha, pull.head.sha])
     if (!/^[a-f0-9]{40}$/.test(sha) || /^0+$/.test(sha))
       throw new Error("Pull request has invalid pinned commits");

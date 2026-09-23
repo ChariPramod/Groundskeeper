@@ -67,3 +67,7 @@ Next: run the development-repository service smoke test; then prioritize shared 
 ## Evidence recovery iteration
 
 Implemented `pnpm verify:import` to restore saved execution reports after database failures without rerunning examples. Added bounded checksum-checked artifact reads, shared affected-claim selection, source/claim/tutorial validation, original identity preservation, safe errors and atomic immutable evidence writes. See [EVIDENCE_RECOVERY.md](EVIDENCE_RECOVERY.md) for commands and trust boundaries.
+
+## PR inbox processing
+
+The finite worker now claims push and pull-request jobs, with an event filter for separate operation. Added pinned webhook commit metadata, merge-base analysis, closed/fork/superseded handling, acknowledgment replay, event-scoped persistence fencing and PR queue retry commands. PostgreSQL lease coverage now exercises both event types. See [PULL_REQUEST_WORKER.md](PULL_REQUEST_WORKER.md). Supervised hosting, installation lifecycle handling, initial indexing, shared review state and hosted authorization remain unfinished product work.

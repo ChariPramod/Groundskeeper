@@ -36,6 +36,11 @@ export function createApp(store: DeliveryStore) {
           if (key in payload) metadata[key] = payload[key as keyof typeof payload];
         }
         if (repository) metadata.full_name = repository.full_name;
+        if (context.name === "pull_request" && "pull_request" in payload) {
+          const pull = payload.pull_request;
+          metadata.base_sha = pull.base.sha;
+          metadata.head_sha = pull.head.sha;
+        }
         const created = await store.save({
           id: context.id,
           event: context.name,

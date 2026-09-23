@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient, WebhookDelivery } from "@prisma/client";
 
+export type AnalysisEvent = "push" | "pull_request";
+
 export const PUSH_MAX_ATTEMPTS = 5;
 
 export class PushLeaseLostError extends Error {
@@ -10,13 +12,17 @@ export class PushLeaseLostError extends Error {
   }
 }
 
-/** Claim one available push atomically. Expired claims consume an attempt. */
-export async function claimNextPush(database: PrismaClient): Promise<WebhookDelivery | null> {
+/** Claim one available analysis event atomically. Expired claims consume an attempt. */
+export async function claimNextDelivery(
+  database: PrismaClient,
+  event: AnalysisEvent | "all" = "push",
+): Promise<WebhookDelivery | null> {
   return database.$transaction(async (tx) => {
     await tx.$executeRaw`
       WITH exhausted AS (
         SELECT id FROM "WebhookDelivery"
-        WHERE event = 'push' AND "processedAt" IS NULL AND "failedAt" IS NULL
+        WHERE (event = ${event} OR (${event} = 'all' AND event IN ('push', 'pull_request')))
+          AND "processedAt" IS NULL AND "failedAt" IS NULL
           AND "attemptCount" >= ${PUSH_MAX_ATTEMPTS}
           AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= clock_timestamp())
         LIMIT 100 FOR UPDATE SKIP LOCKED
@@ -29,7 +35,8 @@ export async function claimNextPush(database: PrismaClient): Promise<WebhookDeli
     const rows = await tx.$queryRaw<WebhookDelivery[]>`
       WITH candidate AS (
         SELECT id FROM "WebhookDelivery"
-        WHERE event = 'push' AND "processedAt" IS NULL AND "failedAt" IS NULL
+        WHERE (event = ${event} OR (${event} = 'all' AND event IN ('push', 'pull_request')))
+          AND "processedAt" IS NULL AND "failedAt" IS NULL
           AND "attemptCount" < ${PUSH_MAX_ATTEMPTS}
           AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= clock_timestamp())
           AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= clock_timestamp())
@@ -48,23 +55,29 @@ export async function claimNextPush(database: PrismaClient): Promise<WebhookDeli
 }
 
 /** A stale worker cannot acknowledge a reclaimed or expired delivery. */
-export async function ackPush(database: PrismaClient, id: string, token: string): Promise<boolean> {
+export async function ackDelivery(
+  database: PrismaClient,
+  id: string,
+  token: string,
+  event: AnalysisEvent = "push",
+): Promise<boolean> {
   const changed = await database.$executeRaw`
     UPDATE "WebhookDelivery"
     SET "processedAt" = clock_timestamp(), "leaseToken" = NULL, "leaseExpiresAt" = NULL,
         "nextAttemptAt" = NULL, "lastError" = NULL
-    WHERE id = ${id} AND event = 'push' AND "leaseToken" = ${token}
+    WHERE id = ${id} AND event = ${event} AND "leaseToken" = ${token}
       AND "leaseExpiresAt" > clock_timestamp() AND "processedAt" IS NULL AND "failedAt" IS NULL
   `;
   return changed === 1;
 }
 
 /** Record only a bounded error category, never exception messages or payloads. */
-export async function failPush(
+export async function failDelivery(
   database: PrismaClient,
   id: string,
   token: string,
   errorName: string,
+  event: AnalysisEvent = "push",
 ): Promise<boolean> {
   const category = /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(errorName) ? errorName : "Error";
   const changed = await database.$executeRaw`
@@ -73,24 +86,34 @@ export async function failPush(
         "failedAt" = CASE WHEN "attemptCount" >= ${PUSH_MAX_ATTEMPTS} THEN clock_timestamp() ELSE NULL END,
         "nextAttemptAt" = CASE WHEN "attemptCount" < ${PUSH_MAX_ATTEMPTS}
           THEN clock_timestamp() + interval '5 minutes' ELSE NULL END
-    WHERE id = ${id} AND event = 'push' AND "leaseToken" = ${token}
+    WHERE id = ${id} AND event = ${event} AND "leaseToken" = ${token}
       AND "leaseExpiresAt" > clock_timestamp() AND "processedAt" IS NULL AND "failedAt" IS NULL
   `;
   return changed === 1;
 }
 
 /** Explicit operator recovery, scoped to the installation owning the delivery. */
-export async function retryFailedPush(
+export async function retryFailedDelivery(
   database: PrismaClient,
   id: string,
   installationId: bigint,
+  event: AnalysisEvent = "push",
 ): Promise<boolean> {
   const changed = await database.$executeRaw`
     UPDATE "WebhookDelivery"
     SET "failedAt" = NULL, "leaseToken" = NULL, "leaseExpiresAt" = NULL,
         "nextAttemptAt" = NULL, "lastError" = NULL, "attemptCount" = 0
-    WHERE id = ${id} AND "installationId" = ${installationId} AND event = 'push'
+    WHERE id = ${id} AND "installationId" = ${installationId} AND event = ${event}
       AND "processedAt" IS NULL AND "failedAt" IS NOT NULL
   `;
   return changed === 1;
 }
+
+// Backward-compatible push entrypoints; new callers select their event explicitly.
+export const claimNextPush = (database: PrismaClient) => claimNextDelivery(database);
+export const ackPush = (database: PrismaClient, id: string, token: string) =>
+  ackDelivery(database, id, token);
+export const failPush = (database: PrismaClient, id: string, token: string, errorName: string) =>
+  failDelivery(database, id, token, errorName);
+export const retryFailedPush = (database: PrismaClient, id: string, installationId: bigint) =>
+  retryFailedDelivery(database, id, installationId);

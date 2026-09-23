@@ -93,3 +93,36 @@ describe("webhook ingress", () => {
     }
   });
 });
+
+it("stores PR commit identities without retaining bodies or source", async () => {
+  const save = vi.fn().mockResolvedValue(true);
+  const app = await setup({ save });
+  await app.receive({
+    id: "pr-delivery",
+    name: "pull_request",
+    payload: {
+      installation: { id: 42 },
+      repository: { id: 7, full_name: "team/docs" },
+      action: "synchronize",
+      number: 3,
+      pull_request: {
+        base: { sha: "a".repeat(40) },
+        head: { sha: "b".repeat(40) },
+        body: "private text",
+      },
+    },
+  } as Parameters<Probot["receive"]>[0]);
+  expect(save).toHaveBeenCalledWith({
+    id: "pr-delivery",
+    event: "pull_request",
+    installationId: 42,
+    repositoryId: 7,
+    payload: {
+      action: "synchronize",
+      number: 3,
+      full_name: "team/docs",
+      base_sha: "a".repeat(40),
+      head_sha: "b".repeat(40),
+    },
+  });
+});

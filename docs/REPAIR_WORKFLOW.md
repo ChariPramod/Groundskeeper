@@ -109,7 +109,7 @@ pnpm pr:analyze --repo owner/repository --pr 123 --installation-id <id> --publis
 
 Checks always conclude **neutral**. They report candidate drift, never claim that documentation passed execution, and do not act as a required verification gate. Up to 50 validated file/line annotations are included without source text or raw execution output. The adapter validates repository, commit and app identity, and reuses a matching check after a lost response. A database advisory lock serializes normal concurrent CLI calls. GitHub does not provide transactional exactly-once check creation; a lost database lock while an external request is in flight can still require manual reconciliation.
 
-PR analysis currently runs on explicit invocation. The durable webhook inbox does not automatically execute these PR jobs. Fork support, background PR scheduling and merge-blocking verified checks remain future work. Draft repair publication targets an analyzed default-branch commit; a PR-head analysis can be reviewed and checked, but cannot publish a default-branch repair until its base policy is satisfied.
+PR analysis now also runs from signed webhook deliveries through the finite worker; see [PULL_REQUEST_WORKER.md](PULL_REQUEST_WORKER.md). A supervised or scheduled worker process is still required. Fork support and merge-blocking verified checks remain future work. Draft repair publication targets an analyzed default-branch commit; a PR-head analysis can be reviewed and checked, but cannot publish a default-branch repair until its base policy is satisfied.
 
 ## 7. Recovery rules
 
@@ -134,4 +134,4 @@ Unit tests cover repair gates, source/image identity, injection-safe fences, tam
 
 Successful real Docker execution, Postgres reservation/migration behavior and GitHub draft/check creation remain unvalidated on this development machine. No real repository changes or GitHub messages were sent while implementing this feature. Run the live smoke test against a development repository before enabling unattended use.
 
-Further work: persistent shared review ownership/history; authenticated browser execution actions; automatic PR event scheduling; fork access handling; version/dependency-aware verification; safe automatic function/argument edits; hosted per-user authorization and production sandbox infrastructure.
+Further work: persistent shared review ownership/history; authenticated browser execution actions; supervised worker scheduling; fork access handling; version/dependency-aware verification; safe automatic function/argument edits; hosted per-user authorization and production sandbox infrastructure.

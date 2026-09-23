@@ -5,11 +5,16 @@ export {
   storeAnalysisRun,
 } from "./analysis-runs.js";
 export {
+  type AnalysisEvent,
+  ackDelivery,
   ackPush,
+  claimNextDelivery,
   claimNextPush,
+  failDelivery,
   failPush,
   PUSH_MAX_ATTEMPTS,
   PushLeaseLostError,
+  retryFailedDelivery,
   retryFailedPush,
 } from "./push-deliveries.js";
 export {

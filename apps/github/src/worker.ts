@@ -34,7 +34,7 @@ export interface WorkerDependencies {
     deliveryId: string;
     installationId: bigint;
     repositoryId: bigint;
-    beforeCommit: string;
+    beforeCommit?: string;
     afterCommit: string;
   }): Promise<boolean>;
 }

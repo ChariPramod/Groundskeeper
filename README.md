@@ -248,3 +248,7 @@ pnpm test:web
 ```
 
 The browser suite builds and tests the production app, including mobile/reduced-motion behavior, evidence-dialog keyboard focus, failure recovery, and an unavailable live database. Live success against Postgres/GitHub remains pending. The local dashboard is read-only and is not a hosted multi-user authorization system.
+
+## Pull-request analysis from webhooks
+
+`pnpm worker --limit 5` now consumes both push and pull-request events. PR jobs pin webhook base/head identities, analyze the merge base against the head, and reuse the existing leases, bounded retry and immutable report persistence. Use `--event pull_request` to process only PR jobs and `pnpm queue --event pull_request --installation-id <id>` for queue operations. See [PR worker behavior and recovery](docs/PULL_REQUEST_WORKER.md).

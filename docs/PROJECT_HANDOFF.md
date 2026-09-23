@@ -20,7 +20,7 @@ The most valuable next milestone is a real development-installation run through 
 | Local entry points | Index CLI, analysis CLI, reproducible demo, JSON reports and FastAPI analysis endpoint | API is local/internal and has no tenant authentication |
 | Python execution | Explicit `groundskeeper:run` opt-in, expected stdout, bounded Docker execution, unique evidence files | Only Python source is copied; no network, implicit dependency installation or host fallback |
 | Tutorial sessions | Page-scoped `groundskeeper:session=<name>`, source ordering, prefix replay, dependency-aware outcomes and budgets | Each step reconstructs state in a fresh container; setup must be deterministic |
-| GitHub ingress | Signed Probot events, durable inbox, duplicate delivery handling, default-branch filtering | Only push jobs are processed; installation and PR events are stored for future work |
+| GitHub ingress | Signed Probot events, durable inbox, duplicate delivery handling, default-branch filtering | Push and PR analysis jobs are processed; installation lifecycle events remain pending |
 | Push worker | Finite batch, installation authentication, exact commit snapshots, blob-hash checks, size/deadline limits, atomic leases, bounded retries, terminal recovery and replay recovery | Live concurrency checks, full indexing and continuous scheduling remain pending |
 | Analysis persistence | Immutable reports, installation-scoped identity and delivery idempotency | Worker stores report snapshots rather than rebuilding mutable Page/Claim tables |
 | Stored-run verification | Loads owned analysis, refetches its exact after-commit, selects affected code/session members, writes local artifact before persistence | Explicit invocation; not automatic on every push; unaffected prose/code is outside coverage |
@@ -305,7 +305,7 @@ Exit 0 means no observed failures and may include skipped/empty work; exit 1 mea
 | Tutorial later step unknown | Inspect the first failing/skipped predecessor and replay budget; this is deliberate cascade prevention |
 | No webhook recorded | Check App installation, event subscriptions, relay/direct URL, signature secret and ingress process |
 | Worker sees no pending pushes | Check default branch, event type, processed status, active lease, terminal status and five-minute retry cooldown |
-| Pending installation or PR events remain | Expected: this worker processes push events only |
+| Pending installation or PR events remain | PR jobs now process by default; installation lifecycle events remain pending. Legacy PR events without pinned commits are ignored. |
 | Initial push repeatedly fails | All-zero before commit is unsupported; produce a later default-branch change with real before/after SHAs |
 | GitHub auth/repository error | Check App ID versus installation ID, actual PEM contents or configured key-file path, selected repository access and read permissions |
 | Worker reports only an error class | Source/secret-bearing details are deliberately not retained in inbox error messages; inspect delivery identity and readiness first |
@@ -359,7 +359,7 @@ Build a permissively licensed public-repository corpus; inspect claim/link sampl
 
 ### P3: validate and expand the implemented repair workflow
 
-Bounded proposals, independent QA, durable atomic publication reservation and evidence-bearing draft PRs are implemented. Follow [REPAIR_WORKFLOW.md](REPAIR_WORKFLOW.md) on a development repository after applying migrations. Test lost-response recovery and stale-head rejection before unattended use. Automatic repairs currently change expected output assertions only; other edits require reviewed full-page replacements. Shared review history, fork PR analysis and automatic PR-event processing remain future work.
+Bounded proposals, independent QA, durable atomic publication reservation and evidence-bearing draft PRs are implemented. Follow [REPAIR_WORKFLOW.md](REPAIR_WORKFLOW.md) on a development repository after applying migrations. Test lost-response recovery and stale-head rejection before unattended use. Automatic repairs currently change expected output assertions only; other edits require reviewed full-page replacements. Shared review history, fork PR analysis and supervised worker scheduling remain future work.
 
 ### Production and later scope
 
@@ -422,3 +422,7 @@ Added safe explicit import of saved verification artifacts and atomic content-ad
 ## Presentation readiness
 
 Added `/walkthrough`, a shareable five-step illustrative scenario with an unavailable-runtime path and reset control. It uses the existing repair demo fixture, never executes examples or publishes changes, and links back to the dashboard. [PRESENTING.md](PRESENTING.md) supplies a three-minute script, capability boundaries, common questions and the prioritized live-pilot checklist. This makes the implemented prototype easier to present; it does not close the live App/worker deployment or multi-user production gaps.
+
+## PR worker product iteration
+
+Connected signed pull-request inbox events to the finite analysis worker. Default processing covers both push and PR events in oldest-first order. PR processing pins event commits, uses the merge base, stores reports before acknowledgment, and shares event-scoped leases, crash recovery, terminal retries and immutable persistence. See [PULL_REQUEST_WORKER.md](PULL_REQUEST_WORKER.md) for deployment steps, ignored-event rules and remaining operational gaps. No presentation features were added in this iteration.
