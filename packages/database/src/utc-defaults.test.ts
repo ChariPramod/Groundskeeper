@@ -42,6 +42,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
           "VerificationRun.createdAt",
           "RepairPublication.createdAt",
           "TeamMember.createdAt",
+          "TeamAccessEvent.createdAt",
           "TeamSession.createdAt",
           "SharedReviewEvent.createdAt",
         ].sort(),

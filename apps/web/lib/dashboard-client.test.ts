@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchDashboard, isDashboardData } from "./dashboard-client";
+import { DashboardAccessError, fetchDashboard, isDashboardData } from "./dashboard-client";
 import { getDemoDashboard } from "./demo-data";
 
 describe("dashboard response validation", () => {
@@ -63,16 +63,25 @@ describe("dashboard fetching", () => {
     await fetchDashboard("", fetchImpl);
     expect(fetchImpl.mock.calls[0]?.[1]?.headers).toEqual({});
   });
-  it("reports rejected access separately without echoing server text", async () => {
-    await expect(
-      fetchDashboard(
-        "secret",
-        vi
-          .fn<typeof fetch>()
-          .mockResolvedValue(new Response("secret server details", { status: 401 })),
-      ),
-    ).rejects.toThrow("Access token was not accepted");
-  });
+  it.each([401, 403] as const)(
+    "classifies rejected access %i without echoing credentials or server text",
+    async (status) => {
+      for (const token of ["secret-token", ""]) {
+        const failure = await fetchDashboard(
+          token,
+          vi
+            .fn<typeof fetch>()
+            .mockResolvedValue(new Response("secret server details", { status })),
+        ).catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(DashboardAccessError);
+        expect(failure).toMatchObject({
+          status,
+          message: expect.stringContaining("Workspace access was not accepted"),
+        });
+        expect((failure as Error).message).not.toMatch(/secret|token/i);
+      }
+    },
+  );
   it("sanitizes unavailable server errors", async () => {
     await expect(
       fetchDashboard(
@@ -80,6 +89,18 @@ describe("dashboard fetching", () => {
         vi.fn<typeof fetch>().mockResolvedValue(new Response("database password", { status: 503 })),
       ),
     ).rejects.toThrow("Dashboard data is temporarily unavailable");
+  });
+  it("keeps unavailable, malformed and network failures distinct from denied access", async () => {
+    for (const fetchImpl of [
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("private", { status: 503 })),
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("not-json")),
+      vi.fn<typeof fetch>().mockResolvedValue(Response.json({ mode: "live" })),
+      vi.fn<typeof fetch>().mockRejectedValue(new Error("private-url")),
+    ]) {
+      const failure = await fetchDashboard("", fetchImpl).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure).not.toBeInstanceOf(DashboardAccessError);
+    }
   });
   it("sanitizes network failures and aborts", async () => {
     for (const failure of [

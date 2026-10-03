@@ -352,6 +352,7 @@ try {
   assert.equal((await request("/api/auth/session", token)).status, 401);
   await setTeamMembership(db, installationId, 8n, true, "viewer");
   await sessionRole("viewer");
+  assert.equal((await teamGet("/api/team")).status, 403);
   assert.equal((await stateRequest(own.runId, bob, { ...update, version: 1 })).status, 403);
   const viewerRead = await stateRequest(own.runId, bob);
   assert.equal(viewerRead.status, 200);
@@ -486,8 +487,75 @@ try {
   assert.equal(new Set(pagedIds).size, 22);
   assert.deepEqual(new Set(pagedIds), new Set([own.runId, ...pageIds]));
   assert(!JSON.stringify([firstPage, secondPage]).includes(foreign.fullName));
+
+  stage = "real admin directory, origin, CAS, audit and session revocation";
+  const foreignInstallation = installationIds[1];
+  assert(foreignInstallation);
+  await setTeamMembership(db, foreignInstallation, 999n, true, "admin");
+  const foreignSession = await createTeamSession(db, foreignInstallation, 999n, "foreign-admin");
+  assert(foreignSession);
+  assert.equal((await teamGet("/api/team", foreignSession)).status, 401);
+  assert.equal((await request("/api/team", token)).status, 401);
+  assert.equal((await teamGet("/api/team?installationId=999")).status, 400);
+  const directoryResponse = await teamGet("/api/team");
+  assert.equal(directoryResponse.status, 200);
+  assert.equal(directoryResponse.headers.get("cache-control"), "no-store");
+  const directory = await directoryResponse.json();
+  assert.deepEqual(
+    directory.members.map((member: { githubUserId: string }) => member.githubUserId),
+    ["8"],
+  );
+  assert.equal(directory.members[0].lastKnownLogin, "bob");
+  assert(
+    directory.events.every(
+      (event: { actor: { source: string } }) => event.actor.source === "operator",
+    ),
+  );
+  assert(!JSON.stringify(directory).includes("tokenHash"));
+  const teamPut = (body: object, from = teamOrigin, session = bob) =>
+    fetch(`${origin}/api/team`, {
+      method: "PUT",
+      headers: {
+        Cookie: `__Host-gk-session=${session}`,
+        Origin: from,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.any([stop.signal, AbortSignal.timeout(8000)]),
+    });
+  const add = { version: directory.version, githubUserId: "9", role: "viewer" };
+  assert.equal((await teamPut(add, "https://wrong.example")).status, 403);
+  assert.equal((await teamPut({ ...add, githubUserId: "8", role: null })).status, 409);
+  assert.equal((await teamPut(add)).status, 200);
+  assert.equal((await teamPut(add)).status, 409);
+  const newDirectory = await (await teamGet("/api/team")).json();
+  assert.equal(newDirectory.version, directory.version + 1);
+  assert.deepEqual(newDirectory.events[0].actor, {
+    source: "member",
+    githubUserId: "8",
+    login: "bob",
+  });
+  assert.equal(newDirectory.events[0].githubUserId, "9");
+  assert.equal(newDirectory.events[0].previousRole, null);
+  assert.equal(newDirectory.events[0].newRole, "viewer");
+  const teammate = await createTeamSession(db, installationId, 9n, "teammate");
+  assert(teammate);
+  assert.equal((await teamGet("/api/team", teammate)).status, 403);
+  assert.equal(
+    (await teamPut({ ...add, version: newDirectory.version }, teamOrigin, teammate)).status,
+    403,
+  );
+  assert.equal(
+    (await teamPut({ version: newDirectory.version, githubUserId: "9", role: null })).status,
+    200,
+  );
+  assert.equal((await teamGet("/api/auth/session", teammate)).status, 401);
+  const removedDirectory = await (await teamGet("/api/team")).json();
+  assert.equal(removedDirectory.events[0].newRole, null);
+  assert.equal(removedDirectory.events[1].newRole, "viewer");
+  assert.equal(removedDirectory.members.length, 1);
   console.log(
-    "Live dashboard smoke passed: real analysis + PostgreSQL + production Next + browser, scoped review inbox, immediate role changes, shared review audit and redacted operations (seeded sessions; no OAuth provider login).",
+    "Live dashboard smoke passed: real analysis + PostgreSQL + production Next + browser, scoped reviews, audited admin membership with last-admin/conflict/session protections, and redacted operations (seeded sessions; no OAuth provider login).",
   );
 } catch {
   console.error(

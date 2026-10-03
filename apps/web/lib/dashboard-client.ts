@@ -1,5 +1,14 @@
 import type { DashboardData } from "./dashboard-types";
 
+export class DashboardAccessError extends Error {
+  constructor(readonly status: 401 | 403) {
+    super(
+      "Workspace access was not accepted. Reconnect with an approved account or valid access credentials.",
+    );
+    this.name = "DashboardAccessError";
+  }
+}
+
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const text = (value: unknown): value is string =>
@@ -89,8 +98,8 @@ export async function fetchDashboard(
       "Live data is unavailable. Check your connection and retry; your last loaded data is unchanged.",
     );
   }
-  if (response.status === 401)
-    throw new Error("Access token was not accepted. Enter a valid dashboard token and retry.");
+  if (response.status === 401 || response.status === 403)
+    throw new DashboardAccessError(response.status);
   if (!response.ok)
     throw new Error("Dashboard data is temporarily unavailable. Retry or switch to demo.");
   let data: unknown;

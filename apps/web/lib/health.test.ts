@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import { healthResponse } from "./health";
 
 it.skipIf(!process.env.DATABASE_TEST_URL)(
-  "readiness rejects a database missing the report-summary migration",
+  "readiness rejects missing report-summary and team-audit migrations",
   async () => {
     const url = new URL(process.env.DATABASE_TEST_URL as string);
     const namespace = url.searchParams.get("schema") ?? "public";
@@ -13,7 +13,17 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
     const db = new PrismaClient({ datasourceUrl: url.toString() });
     try {
       await db.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
-      for (const table of ["Workspace", "AnalysisRun", "VerificationRun", "WebhookDelivery"])
+      for (const table of [
+        "Workspace",
+        "AnalysisRun",
+        "VerificationRun",
+        "WebhookDelivery",
+        "TeamMember",
+        "TeamSession",
+        "SharedReview",
+        "SharedReviewEvent",
+        "TeamAccessEvent",
+      ])
         await db.$executeRawUnsafe(
           `CREATE TABLE "${schema}"."${table}" (LIKE ${source}."${table}" INCLUDING ALL)`,
         );
@@ -24,6 +34,17 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         DASHBOARD_INSTALLATION_ID: "1",
         DASHBOARD_ACCESS_TOKEN: "health-test",
       };
+      expect((await healthResponse(env)).status).toBe(200);
+      const teamEnv = {
+        ...env,
+        AUTH_ORIGIN: "https://team.example",
+        AUTH_SECRET: "s".repeat(32),
+        GITHUB_OAUTH_CLIENT_ID: "test-client",
+        GITHUB_OAUTH_CLIENT_SECRET: "test-secret",
+      };
+      expect((await healthResponse(teamEnv)).status).toBe(200);
+      await db.$executeRawUnsafe(`DROP TABLE "${schema}"."TeamAccessEvent"`);
+      expect((await healthResponse(teamEnv)).status).toBe(503);
       expect((await healthResponse(env)).status).toBe(200);
       await db.$executeRawUnsafe(`ALTER TABLE "${schema}"."VerificationRun" DROP COLUMN summary`);
       const unavailable = await healthResponse(env);

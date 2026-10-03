@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { PrismaClient } from "@prisma/client";
-import { isTeamRole, setTeamMembership } from "./team-access.js";
+import { isTeamRole, setTeamMembership, TeamLastAdminError } from "./team-access.js";
 
 // Operator-only: requires the database credential, never available through a web endpoint.
 async function main() {
@@ -25,7 +25,7 @@ async function main() {
     );
   const db = new PrismaClient();
   try {
-    await setTeamMembership(
+    const result = await setTeamMembership(
       db,
       BigInt(values.installation as string),
       BigInt(values.user as string),
@@ -33,17 +33,21 @@ async function main() {
       isTeamRole(values.role) ? values.role : "reviewer",
     );
     console.log(
-      values.action === "grant"
-        ? `Membership granted with ${values.role ?? "reviewer"} role. Existing sessions use this role immediately.`
-        : "Membership revoked, including all existing sessions.",
+      !result.changed
+        ? `Membership already matches; team version ${result.version} is unchanged.`
+        : values.action === "grant"
+          ? `Membership granted with ${values.role ?? "reviewer"} role. Existing sessions use this role immediately.`
+          : "Membership revoked, including all existing sessions.",
     );
   } finally {
     await db.$disconnect();
   }
 }
-main().catch(() => {
+main().catch((error) => {
   console.error(
-    "Membership update failed. Check command arguments, database connectivity, and existing installation. No credentials were logged.",
+    error instanceof TeamLastAdminError
+      ? error.message
+      : "Membership update failed. Check command arguments, database connectivity, and existing installation. No credentials were logged.",
   );
   process.exitCode = 1;
 });

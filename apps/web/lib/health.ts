@@ -13,7 +13,9 @@ async function probe(databaseUrl: string, team: boolean) {
     await db.$transaction(
       async (tx) => {
         if (team) {
+          await tx.workspace.findFirst({ select: { teamVersion: true } });
           await tx.teamMember.findFirst({ select: { workspaceId: true, role: true } });
+          await tx.teamAccessEvent.findFirst({ select: { version: true } });
           await tx.teamSession.findFirst({ select: { tokenHash: true } });
           await tx.sharedReview.findFirst({ select: { version: true } });
           await tx.sharedReviewEvent.findFirst({ select: { version: true } });

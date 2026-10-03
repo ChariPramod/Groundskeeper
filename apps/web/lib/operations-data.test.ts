@@ -3,8 +3,7 @@ import { operationsResponse, readLiveOperations } from "./operations-data";
 import { demoOperations, isOperationsData, recoveryCommands } from "./operations-types";
 
 const database = vi.hoisted(() => ({
-  webhookDelivery: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
-  analysisRun: { count: vi.fn(), findFirst: vi.fn() },
+  $queryRaw: vi.fn(),
   $executeRaw: vi.fn(),
   disconnect: vi.fn(),
   options: vi.fn(),
@@ -30,14 +29,28 @@ const request = (token = "token") =>
   new Request("https://example.com/api/operations", {
     headers: { Authorization: `Bearer ${token}` },
   });
+const emptyQueue = () => ({
+  pending: 0n,
+  processing: 0n,
+  retrying: 0n,
+  failed: 0n,
+  stalled: 0n,
+  total: 0n,
+  invalid: 0n,
+  oldest: null,
+});
+const mockResults = (queue = emptyQueue(), jobs: unknown[] = [], completed = 0n) => {
+  database.$queryRaw
+    .mockReset()
+    .mockResolvedValueOnce([queue])
+    .mockResolvedValueOnce([{ completed, latest: null }])
+    .mockResolvedValueOnce(jobs);
+};
 beforeEach(() => {
   vi.clearAllMocks();
-  database.webhookDelivery.count.mockReset().mockResolvedValue(0);
-  database.webhookDelivery.findFirst.mockResolvedValue(null);
-  database.webhookDelivery.findMany.mockResolvedValue([]);
-  database.analysisRun.count.mockResolvedValue(0);
-  database.analysisRun.findFirst.mockResolvedValue(null);
+  mockResults();
 });
+
 describe("operations boundaries", () => {
   it("labels sample data without reaching persistence", async () => {
     const read = vi.fn();
@@ -66,48 +79,45 @@ describe("operations boundaries", () => {
     expect(result.headers.get("cache-control")).toBe("no-store");
     expect(result.headers.get("vary")).toContain("Cookie");
   });
-  it("scopes every aggregate and sample query, excludes unsupported events, and bounds the transaction", async () => {
+  it("executes exactly three parameterized data reads with tenant scope and bounded snapshot transaction", async () => {
     await readLiveOperations(42n, env.DATABASE_URL);
-    for (const call of [
-      ...database.webhookDelivery.count.mock.calls,
-      ...database.webhookDelivery.findFirst.mock.calls,
-      ...database.webhookDelivery.findMany.mock.calls,
-    ]) {
-      expect(call[0].where).toMatchObject({
-        installationId: 42n,
-        event: { in: ["push", "pull_request"] },
-        processedAt: null,
-      });
+    expect(database.$queryRaw).toHaveBeenCalledTimes(3);
+    for (const call of database.$queryRaw.mock.calls) {
+      const sql = call[0].join("?");
+      expect(sql).toContain('"installationId" = ?');
+      expect(call.slice(1)).toContain(42n);
+      expect(sql).not.toMatch(/payload|lastError|leaseToken/);
     }
-    for (const call of [
-      ...database.analysisRun.count.mock.calls,
-      ...database.analysisRun.findFirst.mock.calls,
-    ])
-      expect(call[0].where).toMatchObject({ repository: { workspace: { installationId: 42n } } });
-    expect(database.webhookDelivery.findMany.mock.calls[0]?.[0]).toMatchObject({
-      take: 10,
-      orderBy: [{ receivedAt: "asc" }, { id: "asc" }],
-    });
-    const selection = database.webhookDelivery.findMany.mock.calls[0]?.[0].select;
-    expect(selection).not.toHaveProperty("payload");
-    expect(selection).not.toHaveProperty("lastError");
-    expect(selection).not.toHaveProperty("leaseToken");
+    const queueSql = database.$queryRaw.mock.calls[0]?.[0].join("?");
+    const jobsSql = database.$queryRaw.mock.calls[2]?.[0].join("?");
+    expect(queueSql).toContain("FILTER");
+    for (const sql of [queueSql, jobsSql]) {
+      expect(sql).toContain("event IN ('push', 'pull_request')");
+      expect(sql).toContain('"processedAt" IS NULL');
+    }
+    expect(jobsSql).toContain('ORDER BY "receivedAt" ASC, id ASC LIMIT 10');
     expect(database.options).toHaveBeenCalledWith({
       maxWait: 5000,
       timeout: 10000,
       isolationLevel: "RepeatableRead",
     });
-    expect(database.$executeRaw).toHaveBeenCalled();
+    expect(database.$executeRaw).toHaveBeenCalledTimes(1);
     expect(database.disconnect).toHaveBeenCalled();
   });
-  it("counts all matching jobs rather than the actionable sample and never claims a healthy worker", async () => {
-    database.webhookDelivery.count
-      .mockResolvedValueOnce(100)
-      .mockResolvedValueOnce(20)
-      .mockResolvedValueOnce(30)
-      .mockResolvedValueOnce(40)
-      .mockResolvedValueOnce(2);
-    database.analysisRun.count.mockResolvedValue(500);
+  it("counts all matching jobs independently of the sample without claiming worker health", async () => {
+    mockResults(
+      {
+        ...emptyQueue(),
+        pending: 100n,
+        processing: 20n,
+        retrying: 30n,
+        failed: 40n,
+        stalled: 2n,
+        total: 190n,
+      },
+      [],
+      500n,
+    );
     const result = await readLiveOperations(42n, env.DATABASE_URL);
     expect(result.queue).toMatchObject({
       pending: 100,
@@ -121,6 +131,22 @@ describe("operations boundaries", () => {
     expect(result.analyses.completedLast24Hours).toBe(500);
     expect(result.workerStatus).toBe("unknown");
   });
+  it("fails closed on unsafe bigint counts, invalid attempts or contradictory totals", async () => {
+    for (const patch of [
+      { pending: 9007199254740992n, total: 9007199254740992n },
+      { invalid: 1n },
+      { failed: -1n },
+      { total: 1n },
+      { stalled: 1n },
+    ]) {
+      mockResults({ ...emptyQueue(), ...patch });
+      await expect(readLiveOperations(42n, env.DATABASE_URL)).rejects.toThrow();
+    }
+    mockResults(emptyQueue(), [], 9007199254740992n);
+    await expect(readLiveOperations(42n, env.DATABASE_URL)).rejects.toThrow(
+      "Unsafe operations count",
+    );
+  });
   it("keeps empty activity unknown, not a passing pipeline", async () => {
     const result = await readLiveOperations(42n, env.DATABASE_URL);
     expect(result.workerStatus).toBe("unknown");
@@ -130,7 +156,7 @@ describe("operations boundaries", () => {
     expect(isOperationsData(result)).toBe(true);
   });
   it("returns only allowed job summaries", async () => {
-    database.webhookDelivery.findMany.mockResolvedValue([
+    mockResults(emptyQueue(), [
       {
         id: "job",
         event: "push",
@@ -155,7 +181,7 @@ describe("operations boundaries", () => {
     expect(JSON.stringify(result)).not.toContain("SECRET");
   });
   it("always disconnects when the transaction fails", async () => {
-    database.webhookDelivery.count.mockRejectedValueOnce(new Error("offline"));
+    database.$queryRaw.mockReset().mockRejectedValueOnce(new Error("offline"));
     await expect(readLiveOperations(42n, env.DATABASE_URL)).rejects.toThrow("offline");
     expect(database.disconnect).toHaveBeenCalled();
   });

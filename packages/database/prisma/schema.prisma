@@ -24,9 +24,11 @@ model Workspace {
   id             String       @id @default(cuid())
   installationId BigInt       @unique
   account        String
+  teamVersion    Int          @default(0)
   createdAt      DateTime     @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
   repositories   Repository[]
   teamMembers    TeamMember[]
+  teamAccessEvents TeamAccessEvent[]
 }
 
 model Repository {
@@ -206,6 +208,22 @@ model TeamMember {
   @@id([workspaceId, githubUserId])
 }
 
+// Access history survives target removal; operators and signed-in admins use the same writer.
+model TeamAccessEvent {
+  id String @id @default(cuid())
+  workspaceId String
+  version Int
+  actorSource String @db.VarChar(8)
+  actorGithubUserId BigInt?
+  actorLogin String? @db.VarChar(39)
+  targetGithubUserId BigInt
+  previousRole TeamRole?
+  newRole TeamRole?
+  createdAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  @@unique([workspaceId, version])
+}
+
 model TeamSession {
   tokenHash String @id
   workspaceId String
@@ -215,6 +233,7 @@ model TeamSession {
   createdAt DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
   member TeamMember @relation(fields: [workspaceId, githubUserId], references: [workspaceId, githubUserId], onDelete: Cascade, map: "TeamSession_member_fkey")
   @@index([workspaceId, expiresAt, tokenHash])
+  @@index([workspaceId, githubUserId, createdAt, tokenHash], map: "TeamSession_member_latest_idx")
 }
 
 // Mutable current state with optimistic versioning; updates append an audit snapshot atomically.

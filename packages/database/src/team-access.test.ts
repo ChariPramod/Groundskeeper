@@ -12,11 +12,21 @@ import {
 } from "./team-access.js";
 
 function database() {
-  return {
-    teamMember: { findFirst: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
+  const tx = {
+    $executeRaw: vi.fn(),
+    $queryRaw: vi.fn().mockResolvedValue([{ id: "workspace", teamVersion: 0 }]),
+    teamAccessEvent: { create: vi.fn() },
+    teamMember: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn().mockResolvedValue(null),
+      count: vi.fn(),
+      upsert: vi.fn(),
+      deleteMany: vi.fn(),
+    },
     teamSession: { create: vi.fn(), findFirst: vi.fn(), deleteMany: vi.fn() },
-    workspace: { findUniqueOrThrow: vi.fn().mockResolvedValue({ id: "workspace" }) },
+    workspace: { update: vi.fn() },
   };
+  return { ...tx, $transaction: vi.fn((fn) => fn(tx)) };
 }
 describe("team sessions and explicit membership", () => {
   it("allows only known roles and never treats an unknown role as a reviewer", () => {
@@ -88,6 +98,7 @@ describe("team sessions and explicit membership", () => {
     expect(db.teamSession.deleteMany).toHaveBeenCalledWith({
       where: { tokenHash: sessionHash("a".repeat(43)) },
     });
+    db.teamMember.findUnique.mockResolvedValue({ role: "reviewer" });
     await setTeamMembership(db as unknown as PrismaClient, 42n, 7n, false);
     expect(db.teamMember.deleteMany).toHaveBeenCalledWith({
       where: { workspaceId: "workspace", githubUserId: 7n },
@@ -105,7 +116,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
     const db = new PrismaClient({ datasourceUrl: url.toString() });
     try {
       await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
-      for (const table of ["Workspace", "TeamMember", "TeamSession"])
+      for (const table of ["Workspace", "TeamMember", "TeamSession", "TeamAccessEvent"])
         await admin.$executeRawUnsafe(
           `CREATE TABLE "${schema}"."${table}" (LIKE "${table}" INCLUDING ALL)`,
         );
@@ -122,6 +133,10 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       await admin.$executeRawUnsafe(
         `ALTER TABLE "${schema}"."TeamMember" ALTER COLUMN "role" SET DEFAULT 'reviewer'::"${schema}"."TeamRole"`,
       );
+      for (const column of ["previousRole", "newRole"])
+        await admin.$executeRawUnsafe(
+          `ALTER TABLE "${schema}"."TeamAccessEvent" ALTER COLUMN "${column}" TYPE "${schema}"."TeamRole" USING "${column}"::text::"${schema}"."TeamRole"`,
+        );
       await admin.$executeRawUnsafe(
         `ALTER TABLE "${schema}"."TeamMember" ADD FOREIGN KEY ("workspaceId") REFERENCES "${schema}"."Workspace"("id") ON DELETE CASCADE`,
       );
@@ -144,6 +159,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         role: "reviewer",
       });
       expect(await readTeamSession(db, 2n, token)).toBeNull();
+      await setTeamMembership(db, 1n, 8n, true, "admin");
       await setTeamMembership(db, 1n, 7n, true, "admin");
       expect(await readTeamSession(db, 1n, token)).toMatchObject({ role: "admin" });
       await setTeamMembership(db, 1n, 7n, true, "viewer");

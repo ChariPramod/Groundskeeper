@@ -30,6 +30,7 @@ import {
   Sparkles,
   Sprout,
   Terminal,
+  Users,
   X,
 } from "lucide-react";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
@@ -41,6 +42,7 @@ import { QuickActions } from "@/components/quick-actions";
 import { RepairReview } from "@/components/repair-review";
 import { ReviewInbox } from "@/components/review-inbox";
 import { RunReview } from "@/components/run-review";
+import { TeamAccess } from "@/components/team-access";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -49,7 +51,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { fetchDashboard } from "@/lib/dashboard-client";
+import { DashboardAccessError, fetchDashboard } from "@/lib/dashboard-client";
 import type { DashboardData } from "@/lib/dashboard-types";
 import { getDemoDashboard } from "@/lib/demo-data";
 import { useTeamSession } from "@/lib/use-team-session";
@@ -62,7 +64,8 @@ type View =
   | "Work queue"
   | "Repairs"
   | "Review inbox"
-  | "Operations";
+  | "Operations"
+  | "Team access";
 const navigation = [
   { title: "Overview" as View, icon: Layers3 },
   { title: "Review inbox" as View, icon: ListChecks },
@@ -71,6 +74,7 @@ const navigation = [
   { title: "Activity" as View, icon: Activity },
   { title: "Work queue" as View, icon: ListIcon },
   { title: "Repairs" as View, icon: GitPullRequest },
+  { title: "Team access" as View, icon: Users },
 ];
 function ListIcon({ size = 18 }: { size?: number }) {
   return <Terminal size={size} />;
@@ -132,19 +136,14 @@ export function Dashboard({
   teamAuth?: boolean;
 }) {
   const [data, setData] = useState(initialData);
-  useEffect(() => {
-    if (!teamAuth) return;
-    let active = true;
-    void fetchDashboard("")
-      .then((result) => {
-        if (active) setData(result);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [teamAuth]);
-  const { session, error: sessionError } = useTeamSession(teamAuth && data?.mode === "live");
+  const dataEpoch = useRef(0);
+  const [accessDenied, setAccessDenied] = useState(false);
+  const {
+    session,
+    error: sessionError,
+    refresh: refreshTeamSession,
+    accessRejected,
+  } = useTeamSession(teamAuth && data?.mode === "live");
   const [featureRevision, setFeatureRevision] = useState(0);
   const reviewSaved = useCallback(() => setFeatureRevision((value) => value + 1), []);
   const [view, setView] = useState<View>("Overview");
@@ -160,6 +159,39 @@ export function Dashboard({
   const [notice, setNotice] = useState("");
   const pending = useRef(false);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const clearRejectedAccess = useCallback(() => {
+    dataEpoch.current += 1;
+    setData(null);
+    setSelected(null);
+    setQuery("");
+    setFilter("all");
+    setRepository("all");
+    setAccessDenied(true);
+    setError("Workspace access was rejected. Reconnect to reload live reports.");
+    setNotice("");
+  }, []);
+  useEffect(() => {
+    if (accessRejected) clearRejectedAccess();
+  }, [accessRejected, clearRejectedAccess]);
+  useEffect(() => {
+    if (!teamAuth) return;
+    let active = true;
+    const epoch = ++dataEpoch.current;
+    void fetchDashboard("")
+      .then((result) => {
+        if (active && epoch === dataEpoch.current) {
+          setData(result);
+          setAccessDenied(false);
+        }
+      })
+      .catch((cause) => {
+        if (active && epoch === dataEpoch.current && cause instanceof DashboardAccessError)
+          clearRejectedAccess();
+      });
+    return () => {
+      active = false;
+    };
+  }, [teamAuth, clearRejectedAccess]);
   function openRun(run: Run) {
     returnFocus.current = document.activeElement as HTMLElement;
     setSelected(run);
@@ -211,14 +243,19 @@ export function Dashboard({
     setBusy(true);
     setError("");
     setNotice("");
+    const epoch = ++dataEpoch.current;
     try {
       const result = await fetchDashboard(token);
+      if (epoch !== dataEpoch.current) return;
       setData(result);
+      setAccessDenied(false);
       setFeatureRevision((value) => value + 1);
       setSelected(null);
       setNotice("Workspace refreshed.");
       setSettings(false);
     } catch (failure) {
+      if (epoch !== dataEpoch.current) return;
+      if (failure instanceof DashboardAccessError) clearRejectedAccess();
       setError(
         failure instanceof Error && failure.name !== "TimeoutError" && failure.name !== "TypeError"
           ? failure.message
@@ -237,7 +274,9 @@ export function Dashboard({
     setRepository("all");
   }
   function showDemo() {
+    dataEpoch.current += 1;
     setData(getDemoDashboard());
+    setAccessDenied(false);
     setError("");
     setSettings(false);
     setNotice("Showing sample data. No live reports are included.");
@@ -378,38 +417,42 @@ export function Dashboard({
                   <span /> YOUR DOCUMENTATION, TENDED.
                 </div>
                 <h1>
-                  {view === "Review inbox"
-                    ? "The right work. Ready for review."
-                    : view === "Operations"
-                      ? "Know what needs attention."
-                      : view === "Overview"
-                        ? "A healthier home for your docs."
-                        : view === "Repositories"
-                          ? "Every repository. In view."
-                          : view === "Work queue"
-                            ? "Good work, in motion."
-                            : view === "Repairs"
-                              ? "Small changes. Carefully verified."
-                              : "A record of every check."}
+                  {view === "Team access"
+                    ? "The right access. For every teammate."
+                    : view === "Review inbox"
+                      ? "The right work. Ready for review."
+                      : view === "Operations"
+                        ? "Know what needs attention."
+                        : view === "Overview"
+                          ? "A healthier home for your docs."
+                          : view === "Repositories"
+                            ? "Every repository. In view."
+                            : view === "Work queue"
+                              ? "Good work, in motion."
+                              : view === "Repairs"
+                                ? "Small changes. Carefully verified."
+                                : "A record of every check."}
                 </h1>
                 <p>
-                  {view === "Review inbox"
-                    ? "Find open reviews, follow ownership, and pick up where your team left off."
-                    : view === "Operations"
-                      ? "Inspect processing delays, failed deliveries, and recovery steps."
-                      : view === "Overview"
-                        ? "Catch the drift. Check the details. Keep your team moving."
-                        : view === "Repositories"
-                          ? "Follow the code and the documentation that grows around it."
-                          : view === "Work queue"
-                            ? "Follow deliveries from their first attempt to their final outcome."
-                            : view === "Repairs"
-                              ? "Inspect the exact patch and its evidence before approving a draft pull request."
-                              : "Explore analysis runs and the evidence behind each result."}
+                  {view === "Team access"
+                    ? "Manage workspace permissions and follow the history of access changes."
+                    : view === "Review inbox"
+                      ? "Find open reviews, follow ownership, and pick up where your team left off."
+                      : view === "Operations"
+                        ? "Inspect processing delays, failed deliveries, and recovery steps."
+                        : view === "Overview"
+                          ? "Catch the drift. Check the details. Keep your team moving."
+                          : view === "Repositories"
+                            ? "Follow the code and the documentation that grows around it."
+                            : view === "Work queue"
+                              ? "Follow deliveries from their first attempt to their final outcome."
+                              : view === "Repairs"
+                                ? "Inspect the exact patch and its evidence before approving a draft pull request."
+                                : "Explore analysis runs and the evidence behind each result."}
                 </p>
               </div>
               <div className="heading-actions">
-                {!["Review inbox", "Operations"].includes(view) && (
+                {!["Review inbox", "Operations", "Team access"].includes(view) && (
                   <Button variant="outline" onClick={() => data && download(data)} disabled={!data}>
                     <ArrowDownToLine size={15} /> Export report
                   </Button>
@@ -448,7 +491,27 @@ export function Dashboard({
             <p role="status" className="sr-only">
               {notice}
             </p>
-            {view === "Review inbox" ? (
+            {accessDenied ? (
+              <section className="empty-connect">
+                <ShieldCheck className="mx-auto size-8 text-emerald-700" />
+                <h2>Workspace access expired or was revoked.</h2>
+                <p>
+                  Previously loaded reports have been cleared. Reconnect to confirm your current
+                  access.
+                </p>
+                <Button onClick={openSettings}>Connection settings</Button>
+                <Button variant="ghost" onClick={showDemo}>
+                  Explore demo
+                </Button>
+              </section>
+            ) : view === "Team access" ? (
+              <TeamAccess
+                key={`${data?.mode ?? "live"}:${session?.viewScope ?? "unconfirmed"}:${session?.role ?? "unknown"}`}
+                mode={data?.mode ?? (liveConfigured ? "live" : "demo")}
+                role={session?.role ?? null}
+                onChanged={refreshTeamSession}
+              />
+            ) : view === "Review inbox" ? (
               data?.mode === "demo" || teamAuth ? (
                 <ReviewInbox
                   key={`${data?.mode ?? "live"}:${session?.viewScope ?? "unconfirmed"}`}

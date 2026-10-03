@@ -8,6 +8,8 @@ Documentation maintenance backed by evidence: index what docs claim, link those 
 
 ## Current workflow improvements
 
+The **Team access** workspace lets admins add teammates, change roles, and revoke sessions with confirmation, conflict checks, last-admin protection, and audit history. The demo simulates these actions locally. See [team administration](docs/TEAM_ACCESS.md). Operations snapshots now use three bounded data queries instead of nine. Evaluation reports can be checked against a previous compatible result with `pnpm eval --baseline baseline.json --output current.json`; see [regression comparisons](docs/evaluation.md).
+
 Saved inbox views keep up to eight named filter sets in your browser, separately for each signed-in workspace and user. Dashboard and inbox reads use compact database-generated report summaries, with full evidence available through detailed review. The operator command `pnpm db:maintenance --installation-id 42` provides a dry run of bounded expired-session cleanup and storage diagnostics; see [storage maintenance](docs/STORAGE_MAINTENANCE.md). Apply current migrations before enabling live mode.
 
 ## Run the demo

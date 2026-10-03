@@ -152,6 +152,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         "AnalysisRun",
         "TeamMember",
         "TeamSession",
+        "TeamAccessEvent",
         "SharedReview",
         "SharedReviewEvent",
       ])
@@ -171,6 +172,10 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       await admin.$executeRawUnsafe(
         `ALTER TABLE "${schema}"."TeamMember" ALTER COLUMN "role" SET DEFAULT 'reviewer'::"${schema}"."TeamRole"`,
       );
+      for (const column of ["previousRole", "newRole"])
+        await admin.$executeRawUnsafe(
+          `ALTER TABLE "${schema}"."TeamAccessEvent" ALTER COLUMN "${column}" TYPE "${schema}"."TeamRole" USING "${column}"::text::"${schema}"."TeamRole"`,
+        );
       await db.workspace.createMany({
         data: [
           { id: "one", installationId: 1n, account: "one" },

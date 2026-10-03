@@ -28,7 +28,7 @@
 ## Product work remaining
 
 - Shared ownership, notes, and status now persist for OAuth team sessions with optimistic version conflicts and an actor audit trail. See [shared reviews](SHARED_REVIEWS.md). Hosted acceptance remains pending; demo and token-only sessions retain local annotations.
-- Viewer/reviewer/admin roles now restrict shared edits. Role changes apply to existing sessions; membership management remains an operator CLI action. A web administration screen and audited membership administration remain future work.
+- Viewer/reviewer/admin roles restrict shared edits. Admins can now manage membership in the web workspace with version conflicts, last-admin protection, atomic access history, and session revocation. The operator CLI bootstraps the first admin and uses the same audited change engine. Invitation delivery, organization synchronization, and a complete audit-export workflow remain future work.
 - Add a held-out, versioned public-repository evaluation corpus and separately measure execution correctness and recovery behavior.
 - Hosted sandbox verification needs an appropriately isolated execution service. The analysis worker deliberately has no Docker socket and does not execute repository examples.
 - Repair artifacts still live on the operator filesystem; durable artifact storage, retention, and hosted retrieval remain required for a fully hosted repair workflow.
@@ -79,3 +79,27 @@ Before live activation:
 3. Complete the infrastructure and hosted acceptance steps earlier in this document. The public Vercel demo can show the UI and saved views, but cannot prove live GitHub ingestion or background processing. No paid resources were provisioned.
 
 Validation for this increment: the full local check passed with 345 TypeScript tests against real PostgreSQL and 109 Python tests; a subsequent migration-readiness regression also passed (346 TypeScript tests in total). The production Next build and all 27 browser tests passed, including an in-place identity change. The production-server smoke passed against real PostgreSQL with seeded team sessions, including tenant isolation, tied-timestamp inbox pagination, role changes, version conflicts, audit records and operations projections. Prisma validation and migration drift checks passed. Desktop and 390px mobile saved-view screens were inspected without overflow or browser errors. One TypeScript and four Python Docker-dependent tests remain for Docker-enabled CI; no hosted OAuth login or background-worker acceptance is implied by these local checks.
+
+
+## Team administration and regression iteration — October 2026
+
+Implemented:
+
+- Admin-only **Team access** screen: bounded member pages, last-known sign-in labels, add/change/remove confirmations, role explanations, and the latest 20 access events. GitHub numeric IDs are authoritative; granting an ID does not contact or verify the intended person.
+- `GET/PUT /api/team` derives actor and installation from the server session. Mutations serialize on the workspace, recheck current admin membership, require the roster version, and record membership plus history atomically. Stale changes fail; the last admin cannot be removed or demoted. Removed memberships revoke hashed sessions, and regranting access does not resurrect old sessions.
+- Operator grants/revocations use the same audited engine. Existing reviewers stay reviewers; an operator must explicitly grant the first admin. New audit history starts with recorded changes rather than reconstructing old events.
+- Rejected dashboard/session access clears loaded reports, evidence dialogs, quick-action results and export data. Superseded requests cannot repopulate a cleared workspace. Temporary outages still retain the last good snapshot.
+- Team UI failures preserve uncertainty: a conflicting, invalid, or lost write response pauses editing until a successful reload. Permission loss clears the private roster. The demo runs the same interaction pattern with local sample data and a reset control; nothing is sent to a backend.
+- Operations snapshots consolidate nine data reads into three: queue aggregates, analysis aggregates, and bounded recovery jobs. Tenant filtering, repeatable-read consistency, UTC cutoffs, and redacted output are preserved. A matching session index supports latest-login lookup and revocation. Query count is measured; production latency has not been benchmarked.
+- Evaluation `--baseline` comparisons validate schema, corpus identity, labels, coverage, counts and derived scores. New false positives/negatives or safety failures fail the comparison even when another case improves. Details are bounded; malformed/incompatible baselines fail clearly, and atomic output cannot overwrite the baseline through path aliases. This compares authored fixtures, not held-out real-world accuracy.
+
+Owner steps before live use:
+
+1. Run `pnpm db:migrate` for all 15 migrations, including team version/audit tables, actor constraints and the member/session index. The prior report-summary migration still carries its documented table-rewrite requirements.
+2. Once infrastructure is connected and the installation exists, bootstrap the first admin using `DATABASE_URL='…' pnpm team:access --action grant --installation INSTALLATION_ID --user GITHUB_NUMERIC_ID --role admin`. Keep credentials in your operator environment. Default CLI grants remain reviewers.
+3. Verify a real hosted GitHub login, then exercise adding a viewer, changing a role, conflicting edits and revocation using separate accounts. The automated hosted-style smoke uses seeded sessions; it does not verify a real OAuth provider exchange.
+4. Save an evaluation report before a change and compare a new report using `--baseline`. Preserve the baseline and review per-case changes, not only aggregate scores. A changed corpus needs a reviewed new baseline.
+
+Next iteration priorities remain a provenance-backed public-repository evaluation corpus, durable hosted repair artifacts, complete audit export/retention design, and real hosted worker recovery evidence. Infrastructure connections remain deferred, and no paid resource was provisioned.
+
+Validation for this iteration: lint, type checks, 388 TypeScript tests against real PostgreSQL, and 146 Python tests passed locally. All 32 production-build browser tests passed, including access-rejection clearing and a delayed-response race. The production-server/PostgreSQL smoke passed with actual admin HTTP requests, origin checks, version conflicts, audit records, final-admin protection, foreign-session denial and revocation. Prisma migration validation/drift checks passed. Desktop and 390px mobile team screens and the confirmation dialog were inspected without horizontal overflow or browser errors. Evaluation comparisons were also exercised with actual 38-case report artifacts. One TypeScript and four Python Docker tests require Docker-enabled CI. Hosted OAuth provider login and live worker processing remain separate acceptance steps.
