@@ -43,7 +43,7 @@ Deleting membership cascades all of that member's sessions. New sessions cannot 
 - Supplying any OAuth setting enables the OAuth boundary. Partial configuration fails closed and does not silently fall back to the shared bearer token.
 - With no OAuth settings, the previous explicit shared-token flow continues to work for local installations. Demo mode remains public and contains sample data only.
 - GitHub requests are restricted to fixed endpoints, reject redirects and time out after 15 seconds. Errors do not expose provider tokens, database credentials, or stack traces.
-- This release does not provide self-service invitation emails, organization synchronization, enterprise SSO, or a web administrator role. All allowed members have the same review privileges; operator-only membership management is the administrative boundary.
+- This release does not provide self-service invitation emails, organization synchronization, enterprise SSO, or a web administrator role. Members have explicit viewer, reviewer, or admin roles. Viewers can read evidence and shared reviews; reviewers and admins can also save reviews. Membership administration remains operator-only through the CLI.
 
 ## Validation
 
@@ -54,3 +54,15 @@ A real provider login requires an operator-owned OAuth App, valid credentials, m
 Protocol reference: [GitHub's OAuth authorization documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps).
 
 Shared review setup, conflict recovery and audit behavior are documented in [shared reviews](SHARED_REVIEWS.md).
+
+## Roles
+
+Existing members migrate to `reviewer`, preserving their access. New grants default to `reviewer`; specify `--role viewer` or `--role admin` to change it:
+
+```sh
+pnpm team:access --action grant --installation 123 --user 456 --role viewer
+```
+
+Role changes apply to existing sessions immediately on their next request. The shared-review database transaction independently checks the current role under a row lock. Downgrading a member does not delete their past audit events. Revoking membership still invalidates all sessions. Reviewer and admin currently have the same product editing capabilities; admin does not grant access to an unimplemented web administration screen.
+
+`GET /api/auth/session` exposes only the signed-in numeric GitHub ID, login and current role. The interface disables shared editing when it cannot confirm the role. The backend remains authoritative if the role changes while a page is open.

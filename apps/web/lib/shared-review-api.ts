@@ -5,8 +5,10 @@ import {
   SharedReviewConflictError,
   SharedReviewInputError,
   SharedReviewNotFoundError,
+  SharedReviewPermissionError,
   updateSharedReview,
 } from "@groundskeeper/database/shared-reviews";
+import { canReview } from "@groundskeeper/database/team-access";
 import { authConfig, teamAccess, teamAuthEnabled } from "./team-auth";
 
 type Env = Record<string, string | undefined>;
@@ -149,6 +151,11 @@ export async function sharedReviewResponse(
     const deps = { ...defaults, ...dependencies };
     const access = await deps.authorize(request, env);
     if (access instanceof Response) return access;
+    if (request.method === "PUT" && !canReview(access.role))
+      return response(
+        "Your role can view reviews. A reviewer or admin role is required to save changes.",
+        403,
+      );
     const result =
       request.method === "GET"
         ? await deps.read(access, id)
@@ -159,6 +166,11 @@ export async function sharedReviewResponse(
     if (error instanceof SharedReviewNotFoundError) return response("Run not found.", 404);
     if (error instanceof SharedReviewAccessError)
       return response("Team membership is no longer active.", 403);
+    if (error instanceof SharedReviewPermissionError)
+      return response(
+        "Your role can view reviews. A reviewer or admin role is required to save changes.",
+        403,
+      );
     if (error instanceof SharedReviewConflictError)
       return response("This review changed. Reload before saving your edits.", 409);
     if (error instanceof SharedReviewInputError) return response("Invalid review change.", 400);

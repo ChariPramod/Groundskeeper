@@ -14,11 +14,13 @@ import {
   Code2,
   FileCode2,
   FolderGit2,
+  Gauge,
   GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
   Layers3,
   Leaf,
+  ListChecks,
   Menu,
   Plug,
   RefreshCw,
@@ -32,9 +34,12 @@ import {
 } from "lucide-react";
 import { MotionConfig, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NumberTicker } from "@/components/magicui/number-ticker";
+import { OperationsCenter } from "@/components/operations-center";
+import { QuickActions } from "@/components/quick-actions";
 import { RepairReview } from "@/components/repair-review";
+import { ReviewInbox } from "@/components/review-inbox";
 import { RunReview } from "@/components/run-review";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,11 +52,21 @@ import {
 import { fetchDashboard } from "@/lib/dashboard-client";
 import type { DashboardData } from "@/lib/dashboard-types";
 import { getDemoDashboard } from "@/lib/demo-data";
+import { useTeamSession } from "@/lib/use-team-session";
 
 type Run = DashboardData["runs"][number];
-type View = "Overview" | "Repositories" | "Activity" | "Work queue" | "Repairs";
+type View =
+  | "Overview"
+  | "Repositories"
+  | "Activity"
+  | "Work queue"
+  | "Repairs"
+  | "Review inbox"
+  | "Operations";
 const navigation = [
   { title: "Overview" as View, icon: Layers3 },
+  { title: "Review inbox" as View, icon: ListChecks },
+  { title: "Operations" as View, icon: Gauge },
   { title: "Repositories" as View, icon: FolderGit2 },
   { title: "Activity" as View, icon: Activity },
   { title: "Work queue" as View, icon: ListIcon },
@@ -129,6 +144,9 @@ export function Dashboard({
       active = false;
     };
   }, [teamAuth]);
+  const { session, error: sessionError } = useTeamSession(teamAuth && data?.mode === "live");
+  const [featureRevision, setFeatureRevision] = useState(0);
+  const reviewSaved = useCallback(() => setFeatureRevision((value) => value + 1), []);
   const [view, setView] = useState<View>("Overview");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -196,6 +214,7 @@ export function Dashboard({
     try {
       const result = await fetchDashboard(token);
       setData(result);
+      setFeatureRevision((value) => value + 1);
       setSelected(null);
       setNotice("Workspace refreshed.");
       setSettings(false);
@@ -297,8 +316,11 @@ export function Dashboard({
             <div className="profile">
               <span className="profile-avatar">GK</span>
               <div>
-                <strong>Local workspace</strong>
-                <small>Documentation caretaker</small>
+                <strong>
+                  {session?.login ??
+                    (data?.mode === "demo" ? "Demo workspace" : "Workspace access")}
+                </strong>
+                <small>{session ? `${session.role} access` : "Documentation caretaker"}</small>
               </div>
               <Leaf size={17} />
             </div>
@@ -320,6 +342,12 @@ export function Dashboard({
               <strong>{view}</strong>
             </div>
             <div className="topbar-right">
+              <QuickActions
+                views={navigation.map((item) => item.title)}
+                navigate={(next) => navigate(next as View)}
+                runs={data?.runs ?? []}
+                onOpenRun={openRun}
+              />
               <span className="environment">
                 <span />
                 {data?.mode === "live" ? "Live data" : data ? "Demo mode" : "Not connected"}
@@ -350,32 +378,42 @@ export function Dashboard({
                   <span /> YOUR DOCUMENTATION, TENDED.
                 </div>
                 <h1>
-                  {view === "Overview"
-                    ? "A healthier home for your docs."
-                    : view === "Repositories"
-                      ? "Every repository. In view."
-                      : view === "Work queue"
-                        ? "Good work, in motion."
-                        : view === "Repairs"
-                          ? "Small changes. Carefully verified."
-                          : "A record of every check."}
+                  {view === "Review inbox"
+                    ? "The right work. Ready for review."
+                    : view === "Operations"
+                      ? "Know what needs attention."
+                      : view === "Overview"
+                        ? "A healthier home for your docs."
+                        : view === "Repositories"
+                          ? "Every repository. In view."
+                          : view === "Work queue"
+                            ? "Good work, in motion."
+                            : view === "Repairs"
+                              ? "Small changes. Carefully verified."
+                              : "A record of every check."}
                 </h1>
                 <p>
-                  {view === "Overview"
-                    ? "Catch the drift. Check the details. Keep your team moving."
-                    : view === "Repositories"
-                      ? "Follow the code and the documentation that grows around it."
-                      : view === "Work queue"
-                        ? "Follow deliveries from their first attempt to their final outcome."
-                        : view === "Repairs"
-                          ? "Inspect the exact patch and its evidence before approving a draft pull request."
-                          : "Explore analysis runs and the evidence behind each result."}
+                  {view === "Review inbox"
+                    ? "Find open reviews, follow ownership, and pick up where your team left off."
+                    : view === "Operations"
+                      ? "Inspect processing delays, failed deliveries, and recovery steps."
+                      : view === "Overview"
+                        ? "Catch the drift. Check the details. Keep your team moving."
+                        : view === "Repositories"
+                          ? "Follow the code and the documentation that grows around it."
+                          : view === "Work queue"
+                            ? "Follow deliveries from their first attempt to their final outcome."
+                            : view === "Repairs"
+                              ? "Inspect the exact patch and its evidence before approving a draft pull request."
+                              : "Explore analysis runs and the evidence behind each result."}
                 </p>
               </div>
               <div className="heading-actions">
-                <Button variant="outline" onClick={() => data && download(data)} disabled={!data}>
-                  <ArrowDownToLine size={15} /> Export report
-                </Button>
+                {!["Review inbox", "Operations"].includes(view) && (
+                  <Button variant="outline" onClick={() => data && download(data)} disabled={!data}>
+                    <ArrowDownToLine size={15} /> Export report
+                  </Button>
+                )}
                 <Button onClick={refresh} disabled={busy}>
                   <RefreshCw size={15} className={busy ? "spin" : ""} />
                   {busy ? "Refreshing…" : "Refresh workspace"}
@@ -410,7 +448,31 @@ export function Dashboard({
             <p role="status" className="sr-only">
               {notice}
             </p>
-            {view === "Repairs" ? (
+            {view === "Review inbox" ? (
+              data?.mode === "demo" || teamAuth ? (
+                <ReviewInbox
+                  mode={data?.mode ?? (liveConfigured ? "live" : "demo")}
+                  onOpenRun={openRun}
+                  refreshKey={featureRevision}
+                />
+              ) : (
+                <section className="empty-connect">
+                  <ListChecks className="mx-auto size-8 text-emerald-700" />
+                  <h2>Team sign-in is required for the review inbox.</h2>
+                  <p>
+                    Shared ownership and review notes are available to approved team members.
+                    Connect a team session to continue.
+                  </p>
+                  <Button onClick={openSettings}>Connection settings</Button>
+                </section>
+              )
+            ) : view === "Operations" ? (
+              <OperationsCenter
+                mode={data?.mode ?? (liveConfigured ? "live" : "demo")}
+                token={token}
+                refreshKey={featureRevision}
+              />
+            ) : view === "Repairs" ? (
               <RepairReview mode={data?.mode ?? (liveConfigured ? "live" : "demo")} token={token} />
             ) : !data ? (
               <section className="empty-connect">
@@ -845,7 +907,8 @@ export function Dashboard({
             className="evidence-dialog"
             onCloseAutoFocus={(event) => {
               event.preventDefault();
-              returnFocus.current?.focus();
+              if (returnFocus.current?.isConnected) returnFocus.current.focus();
+              else document.getElementById("main-content")?.focus();
             }}
           >
             <DialogHeader>
@@ -881,9 +944,16 @@ export function Dashboard({
                     <small>Evidence records</small>
                   </div>
                 </div>
+                {teamAuth && data?.mode === "live" && sessionError && (
+                  <p role="status" className="text-sm text-amber-800">
+                    {sessionError}
+                  </p>
+                )}
                 <RunReview
                   key={`${data?.mode}:${selected.id}`}
                   teamAuth={teamAuth}
+                  canEdit={!!session && session.role !== "viewer"}
+                  onSaved={reviewSaved}
                   runId={selected.id}
                   token={token}
                   mode={data?.mode ?? "demo"}
@@ -935,7 +1005,8 @@ export function Dashboard({
           <DialogContent
             onCloseAutoFocus={(event) => {
               event.preventDefault();
-              returnFocus.current?.focus();
+              if (returnFocus.current?.isConnected) returnFocus.current.focus();
+              else document.getElementById("main-content")?.focus();
             }}
           >
             <DialogHeader>

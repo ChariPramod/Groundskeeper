@@ -1,6 +1,6 @@
 # Shared team reviews
 
-An OAuth-authenticated workspace member can save an owner label, review note, and dismissed/open status for an analysis run. These records are separate from immutable analysis and execution evidence: dismissing a review never changes a verification verdict. Owner labels do not grant access, notify users, or assign GitHub issues.
+An OAuth-authenticated workspace reviewer or admin can save an owner label, review note, and dismissed/open status for an analysis run. These records are separate from immutable analysis and execution evidence: dismissing a review never changes a verification verdict. Owner labels do not grant access, notify users, or assign GitHub issues.
 
 ## Use
 
@@ -9,7 +9,7 @@ An OAuth-authenticated workspace member can save an owner label, review note, an
 3. Edit **Team owner**, **Team review note**, or **Dismissed for the team**, then select **Save shared review**. Edits remain an unsaved draft until the server confirms a save.
 4. Expand **Recent review history** for the last 20 changes, including actor, version, time, owner, note, and status. All change events remain in the database until the parent run is deleted; UI history is bounded.
 
-Demo and legacy shared-token sessions continue to use explicitly browser-local annotations. Shared state is available only through approved OAuth member sessions. All approved members currently have equal review-edit privileges; finer roles remain future work.
+Demo and legacy shared-token sessions continue to use explicitly browser-local annotations. Shared state is available only through approved OAuth member sessions. Viewers can read shared reviews; reviewers and admins can edit them. Changes to a member's role apply to existing sessions on their next request.
 
 ## Concurrent edits and failures
 
@@ -32,4 +32,4 @@ Unavailable shared storage is never replaced by local-only persistence under a s
 
 Unit tests cover input/response validation, origin and OAuth boundaries, request limits/timeouts, conflict mapping, and redacted errors. Browser tests cover explicit saving, audit rendering, conflict draft retention, deliberate reload, and unavailable shared storage. Real PostgreSQL tests cover concurrent first writes, tenant isolation, revocation, and atomic rollback when audit insertion fails. The production-server smoke additionally exercises shared-review HTTP requests with real database-backed sessions. It seeds sessions directly and does not prove a real GitHub OAuth provider exchange.
 
-Hosted live acceptance still awaits infrastructure and credentials. Shared notes have no notification system, full-history pagination/export, granular roles, or automatic merge. Database administrators can modify tables; the event history is application-append-only, not a tamper-proof ledger.
+Hosted live acceptance still awaits infrastructure and credentials. Shared notes have no notification system, full-history pagination/export, a web membership administration screen, or automatic merge. Database administrators can modify tables; the event history is application-append-only, not a tamper-proof ledger.

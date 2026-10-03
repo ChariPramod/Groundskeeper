@@ -7,8 +7,10 @@ import {
   SharedReviewConflictError,
   SharedReviewInputError,
   SharedReviewNotFoundError,
+  SharedReviewPermissionError,
   updateSharedReview,
 } from "./shared-reviews.js";
+import { createTeamSession, readTeamSession, setTeamMembership } from "./team-access.js";
 
 const identity = { analysisRunId: "run", installationId: 1n, actorGithubUserId: 7n };
 const change = {
@@ -24,7 +26,7 @@ function fake() {
     $executeRaw: vi.fn(),
     $queryRaw: vi
       .fn()
-      .mockResolvedValueOnce([{ workspaceId: "one" }])
+      .mockResolvedValueOnce([{ workspaceId: "one", role: "reviewer" }])
       .mockResolvedValueOnce([{ id: "run" }]),
     sharedReview: {
       findUnique: vi.fn().mockResolvedValue(null),
@@ -78,11 +80,27 @@ describe("shared review boundaries", () => {
     await expect(readSharedReview(db, identity)).rejects.toBeInstanceOf(SharedReviewAccessError);
     expect(tx.sharedReview.findUnique).not.toHaveBeenCalled();
   });
+  it("allows viewer reads but denies their writes without altering state or audit", async () => {
+    const read = fake();
+    read.tx.$queryRaw
+      .mockReset()
+      .mockResolvedValueOnce([{ workspaceId: "one", role: "viewer" }])
+      .mockResolvedValueOnce([{ id: "run" }]);
+    expect((await readSharedReview(read.db, identity)).version).toBe(0);
+    const write = fake();
+    write.tx.$queryRaw.mockReset().mockResolvedValueOnce([{ workspaceId: "one", role: "viewer" }]);
+    await expect(updateSharedReview(write.db, change)).rejects.toBeInstanceOf(
+      SharedReviewPermissionError,
+    );
+    expect(write.tx.sharedReview.findUnique).not.toHaveBeenCalled();
+    expect(write.tx.sharedReview.create).not.toHaveBeenCalled();
+    expect(write.tx.sharedReviewEvent.create).not.toHaveBeenCalled();
+  });
   it("denies foreign or missing run without reading state", async () => {
     const { db, tx } = fake();
     tx.$queryRaw
       .mockReset()
-      .mockResolvedValueOnce([{ workspaceId: "one" }])
+      .mockResolvedValueOnce([{ workspaceId: "one", role: "reviewer" }])
       .mockResolvedValueOnce([]);
     await expect(updateSharedReview(db, change)).rejects.toBeInstanceOf(SharedReviewNotFoundError);
     expect(tx.sharedReview.create).not.toHaveBeenCalled();
@@ -133,6 +151,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         "Repository",
         "AnalysisRun",
         "TeamMember",
+        "TeamSession",
         "SharedReview",
         "SharedReviewEvent",
       ])
@@ -249,6 +268,21 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         (await db.sharedReview.findUniqueOrThrow({ where: { analysisRunId: "run" } })).version,
       ).toBe(2);
       await db.sharedReviewEvent.deleteMany({ where: { version: 3 } });
+      const session = await createTeamSession(db, 1n, 7n, "alice");
+      if (!session) throw new Error("Missing session");
+      await setTeamMembership(db, 1n, 7n, true, "viewer");
+      expect(await readTeamSession(db, 1n, session)).toMatchObject({ role: "viewer" });
+      expect((await readSharedReview(db, identity)).version).toBe(2);
+      await expect(
+        updateSharedReview(db, { ...change, expectedVersion: 2 }),
+      ).rejects.toBeInstanceOf(SharedReviewPermissionError);
+      expect(await db.sharedReviewEvent.count()).toBe(2);
+      await expect(
+        readSharedReview(db, { ...identity, analysisRunId: "foreign" }),
+      ).rejects.toBeInstanceOf(SharedReviewNotFoundError);
+      // Elevation is also immediate; no new session is required.
+      await setTeamMembership(db, 1n, 7n, true, "admin");
+      expect(await readTeamSession(db, 1n, session)).toMatchObject({ role: "admin" });
       await db.teamMember.delete({
         where: { workspaceId_githubUserId: { workspaceId: "one", githubUserId: 7n } },
       });

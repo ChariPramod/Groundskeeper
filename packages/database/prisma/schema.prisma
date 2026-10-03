@@ -14,6 +14,12 @@ enum ClaimStatus {
   unverifiable
 }
 
+enum TeamRole {
+  viewer
+  reviewer
+  admin
+}
+
 model Workspace {
   id             String       @id @default(cuid())
   installationId BigInt       @unique
@@ -188,6 +194,7 @@ model RepairPublication {
 model TeamMember {
   workspaceId String
   githubUserId BigInt
+  role TeamRole @default(reviewer)
   createdAt DateTime @default(now())
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   sessions TeamSession[]

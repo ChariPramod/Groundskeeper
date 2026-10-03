@@ -328,8 +328,118 @@ try {
   const persistedResponse = await stateRequest(own.runId, bob);
   assert.equal(persistedResponse.status, 200);
   assert.deepEqual(await persistedResponse.json(), saved);
+
+  const teamGet = (path: string, session = bob) =>
+    fetch(`${origin}${path}`, {
+      headers: { Cookie: `__Host-gk-session=${session}` },
+      signal: AbortSignal.any([stop.signal, AbortSignal.timeout(8000)]),
+    });
+  const sessionRole = async (role: string) => {
+    const response = await teamGet("/api/auth/session");
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), { githubUserId: "8", login: "bob", role });
+  };
+  stage = "existing session role downgrade and read-only access";
+  await sessionRole("reviewer");
+  assert.equal((await request("/api/auth/session", token)).status, 401);
+  await setTeamMembership(db, installationId, 8n, true, "viewer");
+  await sessionRole("viewer");
+  assert.equal((await stateRequest(own.runId, bob, { ...update, version: 1 })).status, 403);
+  const viewerRead = await stateRequest(own.runId, bob);
+  assert.equal(viewerRead.status, 200);
+  assert.deepEqual(await viewerRead.json(), saved);
+  assert.equal(await db.sharedReviewEvent.count({ where: { analysisRunId: own.runId } }), 1);
+
+  stage = "scoped shared inbox, filters and malformed cursor";
+  const inbox = async (query: string, expectedIds: string[]) => {
+    const response = await teamGet(`/api/reviews${query}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const value = await response.json();
+    assert.equal(value.mode, "live");
+    assert.equal(value.nextCursor, null);
+    assert.deepEqual(
+      value.rows.map((row: { id: string }) => row.id),
+      expectedIds,
+    );
+    assert(!JSON.stringify(value).includes(foreign.fullName));
+    return value;
+  };
+  const allReviews = await inbox("?status=all", [own.runId]);
+  assert.equal(allReviews.rows[0].review.owner, "alice");
+  assert.equal(allReviews.rows[0].review.dismissed, true);
+  assert.equal(allReviews.rows[0].review.version, 1);
+  await inbox("?status=dismissed&owner=ALICE", [own.runId]);
+  await inbox("", []);
+  await inbox("?status=all&unassigned=true", []);
+  await inbox(`?status=all&repository=${encodeURIComponent(foreign.fullName)}`, []);
+  await inbox("?status=all&owner=somebody-else", []);
+  assert.equal((await teamGet("/api/reviews?cursor=invalid-cursor")).status, 400);
+  assert.equal((await request("/api/reviews?status=all", token)).status, 401);
+
+  stage = "scoped operations status and redacted recovery jobs";
+  // A foreign failed job must not alter this installation's counts or recovery list.
+  // Source-bearing fields are deliberately seeded and must never reach the operations DTO.
+  await db.webhookDelivery.updateMany({
+    where: { id: { in: queueIds } },
+    data: {
+      failedAt: new Date(),
+      attemptCount: 5,
+      lastError: "PRIVATE_QUEUE_ERROR",
+      leaseToken: "PRIVATE_LEASE_TOKEN",
+      payload: { secret: "PRIVATE_QUEUE_PAYLOAD" },
+    },
+  });
+  assert.equal((await request("/api/operations")).status, 401);
+  const operationsResponse = await teamGet("/api/operations");
+  assert.equal(operationsResponse.status, 200);
+  assert.equal(operationsResponse.headers.get("cache-control"), "no-store");
+  const operations = await operationsResponse.json();
+  assert.equal(operations.mode, "live");
+  assert.equal(operations.installationId, installationId.toString());
+  assert.equal(operations.workerStatus, "unknown");
+  assert.deepEqual(
+    {
+      pending: operations.queue.pending,
+      processing: operations.queue.processing,
+      retrying: operations.queue.retrying,
+      failed: operations.queue.failed,
+      stalled: operations.queue.stalled,
+      total: operations.queue.total,
+    },
+    { pending: 0, processing: 0, retrying: 0, failed: 1, stalled: 0, total: 1 },
+  );
+  assert.equal(operations.analyses.completedLast24Hours, 1);
+  assert.equal(operations.jobs.length, 1);
+  assert.equal(operations.jobs[0].id, queueIds[0]);
+  assert.equal(operations.jobs[0].event, "pull_request");
+  assert.equal(operations.jobs[0].status, "failed");
+  assert.equal(operations.jobs[0].attempts, 5);
+  assert(!JSON.stringify(operations).includes("PRIVATE_"));
+  assert(!JSON.stringify(operations).includes(foreign.fullName));
+
+  stage = "existing session elevation and inbox reflecting persisted edits";
+  await setTeamMembership(db, installationId, 8n, true, "admin");
+  await sessionRole("admin");
+  const adminResponse = await stateRequest(own.runId, bob, {
+    version: 1,
+    owner: "",
+    note: "Admin follow-up",
+    dismissed: false,
+  });
+  assert.equal(adminResponse.status, 200);
+  const adminSaved = await adminResponse.json();
+  assert.equal(adminSaved.version, 2);
+  assert.equal(adminSaved.events.length, 2);
+  assert.equal(adminSaved.events[0].actorGithubUserId, "8");
+  assert.equal(adminSaved.events[0].actorLogin, "bob");
+  assert.deepEqual(adminSaved.events[1], saved.events[0]);
+  await inbox("", [own.runId]);
+  await inbox("?unassigned=true", [own.runId]);
+  await inbox("?status=dismissed", []);
   console.log(
-    "Live dashboard smoke passed: real analysis + PostgreSQL + production Next + browser, auth, queue/review data, cross-tenant isolation and shared review session API (seeded sessions; no OAuth provider login).",
+    "Live dashboard smoke passed: real analysis + PostgreSQL + production Next + browser, scoped review inbox, immediate role changes, shared review audit and redacted operations (seeded sessions; no OAuth provider login).",
   );
 } catch {
   console.error(

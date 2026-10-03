@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { PrismaClient } from "@prisma/client";
-import { setTeamMembership } from "./team-access.js";
+import { isTeamRole, setTeamMembership } from "./team-access.js";
 
 // Operator-only: requires the database credential, never available through a web endpoint.
 async function main() {
@@ -9,6 +9,7 @@ async function main() {
       action: { type: "string" },
       installation: { type: "string" },
       user: { type: "string" },
+      role: { type: "string" },
     },
     strict: true,
   });
@@ -16,10 +17,11 @@ async function main() {
     !["grant", "revoke"].includes(values.action ?? "") ||
     !/^[1-9]\d{0,18}$/.test(values.installation ?? "") ||
     !/^[1-9]\d{0,18}$/.test(values.user ?? "") ||
-    !process.env.DATABASE_URL
+    !process.env.DATABASE_URL ||
+    (values.role !== undefined && (values.action !== "grant" || !isTeamRole(values.role)))
   )
     throw new Error(
-      "Usage: DATABASE_URL=… pnpm team:access --action grant|revoke --installation NUMERIC_ID --user GITHUB_NUMERIC_ID",
+      "Usage: DATABASE_URL=… pnpm team:access --action grant|revoke --installation NUMERIC_ID --user GITHUB_NUMERIC_ID [--role viewer|reviewer|admin (grant only; defaults to reviewer)]",
     );
   const db = new PrismaClient();
   try {
@@ -28,9 +30,12 @@ async function main() {
       BigInt(values.installation as string),
       BigInt(values.user as string),
       values.action === "grant",
+      isTeamRole(values.role) ? values.role : "reviewer",
     );
     console.log(
-      `Membership ${values.action === "grant" ? "granted" : "revoked, including all existing sessions"}.`,
+      values.action === "grant"
+        ? `Membership granted with ${values.role ?? "reviewer"} role. Existing sessions use this role immediately.`
+        : "Membership revoked, including all existing sessions.",
     );
   } finally {
     await db.$disconnect();

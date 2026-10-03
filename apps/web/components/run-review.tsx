@@ -93,9 +93,13 @@ export function RunReview({
   token,
   mode,
   teamAuth = false,
+  canEdit = false,
+  onSaved,
 }: {
   runId: string;
   teamAuth?: boolean;
+  canEdit?: boolean;
+  onSaved?: () => void;
   token: string;
   mode: "demo" | "live";
 }) {
@@ -241,7 +245,7 @@ export function RunReview({
         </article>
       ))}
       {mode === "live" && teamAuth ? (
-        <SharedReview key={runId} runId={runId} />
+        <SharedReview key={runId} runId={runId} canEdit={canEdit} onSaved={onSaved} />
       ) : (
         <LocalReview
           key={`${mode}:${data.repository}:${runId}`}

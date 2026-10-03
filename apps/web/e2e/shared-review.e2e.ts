@@ -3,6 +3,12 @@ import { getDemoDashboard } from "../lib/demo-data";
 import { getDemoReview } from "../lib/review-demo";
 import type { SharedReviewData } from "../lib/shared-review-types";
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/auth/session", (route) =>
+    route.fulfill({ json: { githubUserId: "7", login: "alice", role: "reviewer" } }),
+  );
+});
+
 test("shared review saves, retains a conflicting draft and reloads the teammate's version", async ({
   page,
 }) => {
@@ -86,3 +92,42 @@ test("shared review outage never substitutes browser-only persistence", async ({
   await expect(page.getByText("Your local review", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Save shared review" })).toHaveCount(0);
 });
+
+for (const role of ["viewer", "unavailable"]) {
+  test(`shared editing fails closed for ${role} access`, async ({ page }) => {
+    await page.route("**/api/auth/session", (route) =>
+      role === "viewer"
+        ? route.fulfill({ json: { githubUserId: "7", login: "alice", role } })
+        : route.fulfill({ status: 503, json: { error: "Unavailable" } }),
+    );
+    const dashboard = getDemoDashboard();
+    dashboard.mode = "live";
+    const run = dashboard.runs[0];
+    if (!run) throw new Error("Missing fixture");
+    await page.route("**/api/dashboard", (route) => route.fulfill({ json: dashboard }));
+    await page.route(`**/api/review/${run.id}`, (route) =>
+      route.fulfill({ json: { ...getDemoReview(run.id), mode: "live" } }),
+    );
+    await page.route(`**/api/review/${run.id}/state`, (route) => {
+      expect(route.request().method()).toBe("GET");
+      return route.fulfill({
+        json: {
+          runId: run.id,
+          version: 0,
+          owner: "",
+          note: "",
+          dismissed: false,
+          updatedAt: null,
+          events: [],
+        },
+      });
+    });
+    await page.goto("http://127.0.0.1:4175");
+    await page.locator("tbody tr button").first().click();
+    const review = page.getByRole("region", { name: "Shared team review" });
+    await expect(review.getByLabel("Team owner")).toBeDisabled();
+    await expect(review.getByRole("button", { name: "Save shared review" })).toBeDisabled();
+    await expect(review.getByRole("button", { name: "Reload shared review" })).toBeEnabled();
+    await expect(review.getByText("Read-only review.", { exact: false })).toBeVisible();
+  });
+}

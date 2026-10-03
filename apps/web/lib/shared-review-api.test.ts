@@ -3,6 +3,7 @@ import {
   SharedReviewConflictError,
   SharedReviewInputError,
   SharedReviewNotFoundError,
+  SharedReviewPermissionError,
 } from "@groundskeeper/database/shared-reviews";
 import { describe, expect, it, vi } from "vitest";
 import { sharedReviewResponse } from "./shared-review-api";
@@ -21,6 +22,7 @@ const access = {
   databaseUrl: env.DATABASE_URL,
   githubUserId: 7n,
   login: "alice",
+  role: "reviewer" as const,
 };
 const state = {
   runId: "run-1",
@@ -62,6 +64,27 @@ describe("shared review API", () => {
     const dependencies = deps();
     expect((await sharedReviewResponse(request(), "run-1", env, dependencies)).status).toBe(200);
     expect(dependencies.update).toHaveBeenCalledWith(access, "run-1", change);
+  });
+  it("lets viewers read shared state but rejects writes before consuming the request", async () => {
+    const dependencies = deps();
+    dependencies.authorize.mockResolvedValue({ ...access, role: "viewer" });
+    const read = await sharedReviewResponse(
+      new Request(env.AUTH_ORIGIN),
+      "run-1",
+      env,
+      dependencies,
+    );
+    expect(read.status).toBe(200);
+    const denied = await sharedReviewResponse(request(), "run-1", env, dependencies);
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ error: expect.stringContaining("reviewer or admin") });
+    expect(dependencies.update).not.toHaveBeenCalled();
+  });
+  it("allows admins to update shared reviews", async () => {
+    const dependencies = deps();
+    dependencies.authorize.mockResolvedValue({ ...access, role: "admin" });
+    expect((await sharedReviewResponse(request(), "run-1", env, dependencies)).status).toBe(200);
+    expect(dependencies.update).toHaveBeenCalledOnce();
   });
   it("fails closed for demo, bearer-only and partial OAuth configuration", async () => {
     for (const configuration of [
@@ -237,6 +260,7 @@ describe("shared review API", () => {
     for (const [error, status] of [
       [new SharedReviewNotFoundError(), 404],
       [new SharedReviewAccessError(), 403],
+      [new SharedReviewPermissionError(), 403],
       [new SharedReviewConflictError(), 409],
       [new SharedReviewInputError(), 400],
       [new Error("DATABASE_SECRET"), 503],

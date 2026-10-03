@@ -4,6 +4,7 @@ import {
   callbackResponse,
   loginResponse,
   logoutResponse,
+  sessionResponse,
   teamAccess,
   teamAuthEnabled,
 } from "./team-auth";
@@ -35,6 +36,33 @@ const fetcher = () =>
     .mockResolvedValueOnce(Response.json({ access_token: "github-token" }))
     .mockResolvedValueOnce(Response.json({ id: 7, login: "alice" }));
 describe("team OAuth", () => {
+  it("returns only safe identity fields and the current role for the session UI", async () => {
+    const authorize = vi.fn().mockResolvedValue({
+      installationId: 42n,
+      databaseUrl: "DATABASE_SECRET",
+      githubUserId: 7n,
+      login: "alice",
+      role: "viewer",
+    });
+    const response = await sessionResponse(new Request(env.AUTH_ORIGIN), env, authorize);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ githubUserId: "7", login: "alice", role: "viewer" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("vary")).toContain("Cookie");
+  });
+  it("preserves session rejection and redacts unexpected identity failures", async () => {
+    const denied = Response.json({ error: "Sign in" }, { status: 401 });
+    expect(
+      await sessionResponse(new Request(env.AUTH_ORIGIN), env, vi.fn().mockResolvedValue(denied)),
+    ).toBe(denied);
+    const failure = await sessionResponse(
+      new Request(env.AUTH_ORIGIN),
+      env,
+      vi.fn().mockRejectedValue(new Error("PRIVATE_DATABASE")),
+    );
+    expect(failure.status).toBe(503);
+    expect(await failure.text()).not.toContain("PRIVATE_DATABASE");
+  });
   it("requires a canonical HTTPS origin and complete configuration", () => {
     for (const AUTH_ORIGIN of [
       "http://example.com",

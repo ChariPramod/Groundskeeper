@@ -1,8 +1,9 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient, TeamRole } from "@prisma/client";
 
 export class SharedReviewInputError extends Error {}
 export class SharedReviewNotFoundError extends Error {}
 export class SharedReviewAccessError extends Error {}
+export class SharedReviewPermissionError extends Error {}
 export class SharedReviewConflictError extends Error {}
 
 export interface SharedReviewIdentity {
@@ -68,15 +69,17 @@ function validateUpdate(input: SharedReviewUpdate) {
 }
 
 /** Lock membership against concurrent revoke, then the immutable run to serialize first writes. */
-async function authorize(tx: Prisma.TransactionClient, input: SharedReviewIdentity) {
+async function authorize(tx: Prisma.TransactionClient, input: SharedReviewIdentity, write = false) {
   await tx.$executeRaw`SET LOCAL lock_timeout = '3000ms'`;
   await tx.$executeRaw`SET LOCAL statement_timeout = '4000ms'`;
-  const members = await tx.$queryRaw<{ workspaceId: string }[]>`
-    SELECT m."workspaceId" FROM "TeamMember" m
+  const members = await tx.$queryRaw<{ workspaceId: string; role: TeamRole }[]>`
+    SELECT m."workspaceId", m.role FROM "TeamMember" m
     JOIN "Workspace" w ON w.id = m."workspaceId"
     WHERE w."installationId" = ${input.installationId} AND m."githubUserId" = ${input.actorGithubUserId}
     FOR SHARE OF m`;
   if (members.length !== 1) throw new SharedReviewAccessError("Team membership required");
+  if (write && !(members[0]?.role === "reviewer" || members[0]?.role === "admin"))
+    throw new SharedReviewPermissionError("Reviewer or admin role required");
   const rows = await tx.$queryRaw<{ id: string }[]>`
     SELECT a.id FROM "AnalysisRun" a JOIN "Repository" r ON r.id = a."repositoryId"
     WHERE a.id = ${input.analysisRunId} AND r."workspaceId" = ${members[0]?.workspaceId}
@@ -136,7 +139,7 @@ export async function updateSharedReview(
   validateUpdate(input);
   return db.$transaction(
     async (tx) => {
-      await authorize(tx, input);
+      await authorize(tx, input, true);
       const existing = await tx.sharedReview.findUnique({
         where: { analysisRunId: input.analysisRunId },
       });

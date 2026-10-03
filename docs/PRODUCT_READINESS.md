@@ -28,7 +28,7 @@
 ## Product work remaining
 
 - Shared ownership, notes, and status now persist for OAuth team sessions with optimistic version conflicts and an actor audit trail. See [shared reviews](SHARED_REVIEWS.md). Hosted acceptance remains pending; demo and token-only sessions retain local annotations.
-- All approved members can currently read and edit shared reviews. Add granular roles and audited membership administration before broader multi-role rollout.
+- Viewer/reviewer/admin roles now restrict shared edits. Role changes apply to existing sessions; membership management remains an operator CLI action. A web administration screen and audited membership administration remain future work.
 - Add a held-out, versioned public-repository evaluation corpus and separately measure execution correctness and recovery behavior.
 - Hosted sandbox verification needs an appropriately isolated execution service. The analysis worker deliberately has no Docker socket and does not execute repository examples.
 - Repair artifacts still live on the operator filesystem; durable artifact storage, retention, and hosted retrieval remain required for a fully hosted repair workflow.
@@ -40,3 +40,13 @@ Nothing is described as break-proof. Tests cover specific safety and recovery pr
 Local validation passed lint, TypeScript checks, production Next build, 238 TypeScript tests (eight service-dependent tests skipped), 109 Python tests (four Docker tests skipped), the authored evaluation gate, and 14 dashboard browser tests. Additional authentication tests exercise bounded database transactions and sanitized timeout failures.
 
 GitHub CI exercised the new real PostgreSQL production-server/browser smoke successfully on `b1e311c`. Vercel deployed that revision successfully; a browser check loaded five demo rows without page errors. Public health returned `mode: demo`, `liveReady: false`; the unconfigured OAuth endpoint returned 503 as intended. These observations verify the hosted demo, not a live GitHub installation or background worker. See subsequent CI runs for final container and service validation of the latest revision.
+
+## Workflow iteration — October 2026
+
+- [Review inbox](REVIEW_INBOX.md): server-side owner, repository and review-status filters with stable cursor pagination. Shared notes remain OAuth-only; permission denial clears previously loaded inbox data.
+- [Operations center](OPERATIONS_CENTER.md): installation-scoped aggregate queue counts, failed/stalled delivery diagnostics, and operator recovery commands. Counts cover the matching queue, not only the dashboard's latest 50 rows. Worker health stays unknown without a recorded heartbeat.
+- Viewer/reviewer/admin roles, immediate privilege changes, and safe current-session identity.
+- Keyboard quick actions (`Ctrl+K` / `Cmd+K`) for navigation and searching loaded runs; accessible focus, empty results, and keyboard selection.
+- Hosted production-server smoke coverage now includes role downgrade/elevation, inbox authorization and filters, operations tenant isolation, and output redaction.
+
+Before live activation, apply both the shared-review and role migrations with `pnpm db:migrate`. New UI features can be explored in the explicitly labeled demo while infrastructure connections are deferred. No paid service was provisioned in this iteration.

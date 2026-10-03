@@ -11,7 +11,15 @@ import { Button } from "./ui/button";
 
 const empty: SharedReviewFields = { owner: "", note: "", dismissed: false };
 
-export function SharedReview({ runId }: { runId: string }) {
+export function SharedReview({
+  runId,
+  canEdit = false,
+  onSaved,
+}: {
+  runId: string;
+  canEdit?: boolean;
+  onSaved?: () => void;
+}) {
   const [saved, setSaved] = useState<SharedReviewData | null>(null);
   const [draft, setDraft] = useState<SharedReviewFields>(empty);
   const [busy, setBusy] = useState(false);
@@ -59,6 +67,7 @@ export function SharedReview({ runId }: { runId: string }) {
         setDraft({ owner: result.owner, note: result.note, dismissed: result.dismissed });
         setUncertain(false);
         setNotice(body ? "Shared review saved." : "");
+        if (body) onSaved?.();
       } catch (cause) {
         if (controller.signal.aborted) return;
         if (body) setUncertain(true);
@@ -74,7 +83,7 @@ export function SharedReview({ runId }: { runId: string }) {
         }
       }
     },
-    [runId],
+    [runId, onSaved],
   );
   useEffect(() => {
     pending.current = false;
@@ -99,6 +108,11 @@ export function SharedReview({ runId }: { runId: string }) {
         Visible to approved workspace members. Review status does not change verification evidence.
         Owner is a label; assigning it does not send a notification.
       </p>
+      {!canEdit && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Read-only review. A reviewer or admin role is required to save changes.
+        </p>
+      )}
       {error && (
         <p role="alert" className="text-sm text-amber-800">
           {error}
@@ -121,7 +135,7 @@ export function SharedReview({ runId }: { runId: string }) {
             <input
               maxLength={100}
               value={draft.owner}
-              disabled={busy}
+              disabled={busy || !canEdit}
               onChange={(e) => setDraft({ ...draft, owner: e.target.value })}
               placeholder="Unassigned"
               className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -132,7 +146,7 @@ export function SharedReview({ runId }: { runId: string }) {
             <textarea
               maxLength={2000}
               value={draft.note}
-              disabled={busy}
+              disabled={busy || !canEdit}
               onChange={(e) => setDraft({ ...draft, note: e.target.value })}
               placeholder="Record what needs attention…"
               className="mt-1 block min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -142,7 +156,7 @@ export function SharedReview({ runId }: { runId: string }) {
             <input
               type="checkbox"
               checked={draft.dismissed}
-              disabled={busy}
+              disabled={busy || !canEdit}
               onChange={(e) => setDraft({ ...draft, dismissed: e.target.checked })}
             />
             Dismissed for the team
@@ -155,7 +169,7 @@ export function SharedReview({ runId }: { runId: string }) {
           </p>
           <Button
             size="sm"
-            disabled={busy || uncertain || !dirty}
+            disabled={busy || !canEdit || uncertain || !dirty}
             onClick={() => void perform({ ...draft, version: saved.version })}
           >
             <Save />

@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import {
+  canReview,
   createTeamSession,
+  isTeamRole,
   readTeamSession,
   revokeTeamSession,
   sessionHash,
@@ -17,6 +19,35 @@ function database() {
   };
 }
 describe("team sessions and explicit membership", () => {
+  it("allows only known roles and never treats an unknown role as a reviewer", () => {
+    expect(["viewer", "reviewer", "admin"].every(isTeamRole)).toBe(true);
+    expect(canReview("viewer")).toBe(false);
+    expect(canReview("reviewer")).toBe(true);
+    expect(canReview("admin")).toBe(true);
+    for (const value of [undefined, null, "owner", "ADMIN", {}, true]) {
+      expect(isTeamRole(value)).toBe(false);
+      expect(canReview(value)).toBe(false);
+    }
+  });
+  it("uses reviewer by default and persists explicit role changes", async () => {
+    const db = database();
+    await setTeamMembership(db as unknown as PrismaClient, 42n, 7n, true);
+    expect(db.teamMember.upsert).toHaveBeenLastCalledWith({
+      where: { workspaceId_githubUserId: { workspaceId: "workspace", githubUserId: 7n } },
+      create: { workspaceId: "workspace", githubUserId: 7n, role: "reviewer" },
+      update: { role: "reviewer" },
+    });
+    await setTeamMembership(db as unknown as PrismaClient, 42n, 7n, true, "viewer");
+    expect(db.teamMember.upsert).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        update: { role: "viewer" },
+      }),
+    );
+    await expect(
+      setTeamMembership(db as unknown as PrismaClient, 42n, 7n, true, "owner" as "admin"),
+    ).rejects.toThrow("Invalid team role");
+    expect(db.teamMember.upsert).toHaveBeenCalledTimes(2);
+  });
   it("does not provision unapproved identities", async () => {
     const db = database();
     db.teamMember.findFirst.mockResolvedValue(null);
@@ -94,7 +125,20 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       expect(await createTeamSession(db, 2n, 7n, "alice")).toBeNull();
       const token = await createTeamSession(db, 1n, 7n, "alice");
       if (!token) throw new Error("No session");
-      expect(await readTeamSession(db, 1n, token)).toEqual({ githubUserId: 7n, login: "alice" });
+      expect(await readTeamSession(db, 1n, token)).toEqual({
+        githubUserId: 7n,
+        login: "alice",
+        role: "reviewer",
+      });
+      expect(await readTeamSession(db, 2n, token)).toBeNull();
+      await setTeamMembership(db, 1n, 7n, true, "admin");
+      expect(await readTeamSession(db, 1n, token)).toMatchObject({ role: "admin" });
+      await setTeamMembership(db, 1n, 7n, true, "viewer");
+      expect(await readTeamSession(db, 1n, token)).toMatchObject({ role: "viewer" });
+      expect(await db.teamSession.count()).toBe(1);
+      // A grant in another installation must not affect the original session's privileges.
+      await setTeamMembership(db, 2n, 7n, true, "admin");
+      expect(await readTeamSession(db, 1n, token)).toMatchObject({ role: "viewer" });
       expect(await readTeamSession(db, 2n, token)).toBeNull();
       await db.teamSession.update({
         where: { tokenHash: sessionHash(token) },

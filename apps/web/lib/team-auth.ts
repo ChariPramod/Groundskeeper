@@ -83,7 +83,28 @@ export async function teamAccess(request: Request, env: Env) {
       databaseUrl: config.databaseUrl,
       githubUserId: member.githubUserId,
       login: member.login,
+      role: member.role,
     };
+  } catch {
+    return Response.json(
+      { error: "Team authentication is temporarily unavailable." },
+      { status: 503, headers },
+    );
+  }
+}
+/** A minimal identity for UI permissions; no session token or infrastructure details. */
+export async function sessionResponse(
+  request: Request,
+  env: Env = process.env,
+  authorize = teamAccess,
+) {
+  try {
+    const access = await authorize(request, env);
+    if (access instanceof Response) return access;
+    return Response.json(
+      { githubUserId: access.githubUserId.toString(), login: access.login, role: access.role },
+      { headers },
+    );
   } catch {
     return Response.json(
       { error: "Team authentication is temporarily unavailable." },

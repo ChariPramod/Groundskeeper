@@ -37,13 +37,15 @@ it("bounds authenticated database work and closes the client after transaction t
   expect(await (result as Response).text()).not.toContain("PRIVATE_DATABASE");
 });
 it("runs session lookup through the transaction client", async () => {
-  const findFirst = vi.fn().mockResolvedValue({ githubUserId: 7n, login: "alice" });
+  const findFirst = vi
+    .fn()
+    .mockResolvedValue({ githubUserId: 7n, login: "alice", member: { role: "viewer" } });
   db.transaction.mockImplementation((fn) => fn({ teamSession: { findFirst } }));
   const result = await teamAccess(
     new Request(env.AUTH_ORIGIN, { headers: { cookie: `__Host-gk-session=${"a".repeat(43)}` } }),
     env,
   );
-  expect(result).toMatchObject({ installationId: 42n, githubUserId: 7n });
+  expect(result).toMatchObject({ installationId: 42n, githubUserId: 7n, role: "viewer" });
   expect(findFirst).toHaveBeenCalledOnce();
   expect(db.disconnect).toHaveBeenCalledOnce();
 });

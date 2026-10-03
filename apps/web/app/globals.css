@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @theme inline {
   --color-background: #f8f9f6;
+  --color-card: #fff;
+  --color-card-foreground: #25372f;
   --color-foreground: #25372f;
   --color-primary: #285541;
   --color-primary-foreground: #fff;
@@ -59,12 +61,6 @@ button {
   transition:
     background 0.15s,
     color 0.15s;
-}
-h1,
-h2,
-h3,
-p {
-  margin: 0;
 }
 button svg {
   flex-shrink: 0;
