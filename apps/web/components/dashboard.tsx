@@ -883,6 +883,7 @@ export function Dashboard({
                 </div>
                 <RunReview
                   key={`${data?.mode}:${selected.id}`}
+                  teamAuth={teamAuth}
                   runId={selected.id}
                   token={token}
                   mode={data?.mode ?? "demo"}

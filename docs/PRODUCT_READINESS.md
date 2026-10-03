@@ -27,8 +27,8 @@
 
 ## Product work remaining
 
-- Shared review ownership, notes, and status are still browser-local; implement persistent, versioned review records and an actor audit trail before claiming collaborative review workflows.
-- All approved members currently share read access; add explicit roles and audited administrative operations when write collaboration is implemented.
+- Shared ownership, notes, and status now persist for OAuth team sessions with optimistic version conflicts and an actor audit trail. See [shared reviews](SHARED_REVIEWS.md). Hosted acceptance remains pending; demo and token-only sessions retain local annotations.
+- All approved members can currently read and edit shared reviews. Add granular roles and audited membership administration before broader multi-role rollout.
 - Add a held-out, versioned public-repository evaluation corpus and separately measure execution correctness and recovery behavior.
 - Hosted sandbox verification needs an appropriately isolated execution service. The analysis worker deliberately has no Docker socket and does not execute repository examples.
 - Repair artifacts still live on the operator filesystem; durable artifact storage, retention, and hosted retrieval remain required for a fully hosted repair workflow.

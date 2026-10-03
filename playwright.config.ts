@@ -11,6 +11,21 @@ export default defineConfig({
   },
   webServer: [
     {
+      command: "pnpm --filter @groundskeeper/web start --port 4175",
+      url: "http://127.0.0.1:4175",
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: {
+        DASHBOARD_MODE: "live",
+        AUTH_ORIGIN: "https://team.example",
+        AUTH_SECRET: "test-only-secret-test-only-secret",
+        GITHUB_OAUTH_CLIENT_ID: "test",
+        GITHUB_OAUTH_CLIENT_SECRET: "test",
+        DASHBOARD_INSTALLATION_ID: "1",
+        DATABASE_URL: "postgresql://test:test@127.0.0.1:1/unavailable",
+      },
+    },
+    {
       command: "pnpm --filter @groundskeeper/web start --port 4173",
       url: "http://127.0.0.1:4173",
       reuseExistingServer: false,

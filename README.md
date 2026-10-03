@@ -256,3 +256,5 @@ The browser suite builds and tests the production app, including mobile/reduced-
 ### Operational and team access increment
 
 `pnpm worker:serve` supervises continuous background analysis with bounded batches, graceful shutdown, retries and health endpoints. GitHub OAuth sessions and explicit installation membership support team reads; `pnpm team:access` manages membership. `/api/health` reports web readiness without calling demo data live. `pnpm test:hosted` exercises a built production server against a migrated `DATABASE_TEST_URL`, including cross-tenant denial. See [current product readiness and remaining work](docs/PRODUCT_READINESS.md), [worker operations](docs/WORKER_OPERATIONS.md), and [team setup](docs/TEAM_ACCESS.md).
+
+OAuth team sessions now support [shared reviews](docs/SHARED_REVIEWS.md): persistent ownership labels, notes, review status, version conflicts, and actor history. Run database migrations before activating this feature in a live deployment.

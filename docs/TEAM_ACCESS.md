@@ -1,6 +1,6 @@
 # Hosted team access
 
-The hosted dashboard supports GitHub OAuth with an explicit allowlist of numeric GitHub user IDs for one installation per deployment. Approved members can read that installation's dashboard, review evidence, and repair artifacts. Membership administration is an operator command requiring database credentials, not a publicly reachable signup or administration endpoint. No organization membership is inferred. GitHub account renames do not change identity.
+The hosted dashboard supports GitHub OAuth with an explicit allowlist of numeric GitHub user IDs for one installation per deployment. Approved members can read that installation's dashboard, review evidence, and repair artifacts, and edit versioned shared review notes, ownership labels, and status. Membership administration is an operator command requiring database credentials, not a publicly reachable signup or administration endpoint. No organization membership is inferred. GitHub account renames do not change identity.
 
 ## Configure
 
@@ -52,3 +52,5 @@ Unit tests cover approved and denied membership, hashed session storage, tenant-
 A real provider login requires an operator-owned OAuth App, valid credentials, migrated hosted Postgres, an ingested installation and an approved account. Configuring the code does not demonstrate that deployment's successful OAuth exchange; complete and record this pilot before claiming hosted team access is verified.
 
 Protocol reference: [GitHub's OAuth authorization documentation](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps).
+
+Shared review setup, conflict recovery and audit behavior are documented in [shared reviews](SHARED_REVIEWS.md).

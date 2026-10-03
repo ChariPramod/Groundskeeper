@@ -6,14 +6,20 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { type Browser, chromium, expect } from "@playwright/test";
 import { analyzeLocally } from "../apps/github/src/analysis.js";
-import { type Prisma, PrismaClient, storeAnalysisRun } from "../packages/database/src/index.js";
+import {
+  createTeamSession,
+  type Prisma,
+  PrismaClient,
+  setTeamMembership,
+  storeAnalysisRun,
+} from "../packages/database/src/index.js";
 import { extractClaims } from "../packages/parser/src/index.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const origin = "http://127.0.0.1:4176";
 const stop = new AbortController();
 const signalHandler = () => stop.abort();
-const deadline = setTimeout(signalHandler, 180_000);
+const deadline = setTimeout(signalHandler, 240_000);
 process.once("SIGINT", signalHandler);
 process.once("SIGTERM", signalHandler);
 let stage = "configuration";
@@ -41,6 +47,55 @@ function kill(signal: NodeJS.Signals) {
     else process.kill(-child.pid, signal);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill(signal);
+  }
+}
+
+async function startNext(env: NodeJS.ProcessEnv) {
+  child = spawn(
+    process.execPath,
+    [
+      fileURLToPath(new URL("../apps/web/node_modules/next/dist/bin/next", import.meta.url)),
+      "start",
+      "--hostname",
+      "127.0.0.1",
+      "--port",
+      "4176",
+    ],
+    { cwd: `${root}apps/web`, env, stdio: "ignore", detached: process.platform !== "win32" },
+  );
+  let spawnFailed = false;
+  child.once("error", () => {
+    spawnFailed = true;
+  });
+  childClosed = new Promise((resolve) => child?.once("close", () => resolve()));
+  const startupDeadline = Date.now() + 45_000;
+  let ready = false;
+  while (Date.now() < startupDeadline) {
+    assert(!spawnFailed && child.exitCode === null && child.signalCode === null, "Next exited");
+    try {
+      const health = await request("/api/health");
+      if (health.ok) {
+        const value = await health.json();
+        assert.equal(value.liveReady, true);
+        assert.equal(value.mode, "live");
+        assert.equal(health.headers.get("cache-control"), "no-store");
+        ready = true;
+        break;
+      }
+    } catch {
+      stop.signal.throwIfAborted();
+    }
+    await wait(200);
+  }
+  assert(ready, "Live readiness timed out");
+}
+
+async function stopNext() {
+  kill("SIGTERM");
+  if (childClosed) {
+    const force = setTimeout(() => kill("SIGKILL"), 3000);
+    await childClosed;
+    clearTimeout(force);
   }
 }
 
@@ -134,43 +189,7 @@ try {
     AUTH_ORIGIN: "",
     AUTH_SECRET: "",
   };
-  child = spawn(
-    process.execPath,
-    [
-      fileURLToPath(new URL("../apps/web/node_modules/next/dist/bin/next", import.meta.url)),
-      "start",
-      "--hostname",
-      "127.0.0.1",
-      "--port",
-      "4176",
-    ],
-    { cwd: `${root}apps/web`, env, stdio: "ignore", detached: process.platform !== "win32" },
-  );
-  let spawnFailed = false;
-  child.once("error", () => {
-    spawnFailed = true;
-  });
-  childClosed = new Promise((resolve) => child?.once("close", () => resolve()));
-  const startupDeadline = Date.now() + 45_000;
-  let ready = false;
-  while (Date.now() < startupDeadline) {
-    assert(!spawnFailed && child.exitCode === null && child.signalCode === null, "Next exited");
-    try {
-      const health = await request("/api/health");
-      if (health.ok) {
-        const value = await health.json();
-        assert.equal(value.liveReady, true);
-        assert.equal(value.mode, "live");
-        assert.equal(health.headers.get("cache-control"), "no-store");
-        ready = true;
-        break;
-      }
-    } catch {
-      stop.signal.throwIfAborted();
-    }
-    await wait(200);
-  }
-  assert(ready, "Live readiness timed out");
+  await startNext(env);
 
   stage = "authentication and dashboard isolation";
   assert.equal((await request("/api/dashboard")).status, 401);
@@ -229,8 +248,88 @@ try {
   await expect(dialog.getByText("Linked changed symbols", { exact: true }).first()).toBeVisible();
   assert.equal(await dialog.locator("article").count(), review.findings.length);
   assert.deepEqual(pageErrors, []);
+  await browser.close();
+  browser = undefined;
+  await stopNext();
+
+  stage = "team session setup and production restart";
+  const installationId = installationIds[0];
+  assert(installationId);
+  await setTeamMembership(db, installationId, 7n, true);
+  const alice = await createTeamSession(db, installationId, 7n, "alice");
+  assert(alice);
+  const teamOrigin = "https://team.example";
+  await startNext({
+    ...env,
+    DASHBOARD_ACCESS_TOKEN: "",
+    GITHUB_OAUTH_CLIENT_ID: "live-smoke-client",
+    GITHUB_OAUTH_CLIENT_SECRET: randomBytes(32).toString("hex"),
+    AUTH_ORIGIN: teamOrigin,
+    AUTH_SECRET: randomBytes(32).toString("hex"),
+  });
+  // Seed real hashed sessions, then exercise HTTP authorization. This does not test GitHub login
+  // or browser transport of Secure cookies: the HTTPS origin is supplied by a trusted proxy in use.
+  const stateRequest = (runId: string, session: string, body?: object, from = teamOrigin) =>
+    fetch(`${origin}/api/review/${runId}/state`, {
+      method: body ? "PUT" : "GET",
+      headers: {
+        Cookie: `__Host-gk-session=${session}`,
+        ...(body ? { Origin: from, "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.any([stop.signal, AbortSignal.timeout(8000)]),
+    });
+  stage = "shared review defaults and session-attributed audit";
+  const initialResponse = await stateRequest(own.runId, alice);
+  assert.equal(initialResponse.status, 200);
+  assert.equal(initialResponse.headers.get("cache-control"), "no-store");
+  const initial = await initialResponse.json();
+  assert.equal(initial.version, 0);
+  assert.deepEqual(initial.events, []);
+  const update = {
+    version: 0,
+    owner: "alice",
+    note: "Review output drift",
+    dismissed: true,
+  };
+  const savedResponse = await stateRequest(own.runId, alice, update);
+  assert.equal(savedResponse.status, 200);
+  const saved = await savedResponse.json();
+  assert.equal(saved.runId, own.runId);
+  assert.equal(saved.version, 1);
+  assert.equal(saved.owner, update.owner);
+  assert.equal(saved.note, update.note);
+  assert.equal(saved.dismissed, true);
+  assert.equal(saved.events.length, 1);
+  assert.equal(saved.events[0].actorGithubUserId, "7");
+  assert.equal(saved.events[0].actorLogin, "alice");
+  assert.equal(saved.events[0].version, 1);
+
+  stage = "shared review conflicts, origin validation and tenant denial";
+  assert.equal((await stateRequest(own.runId, alice, update)).status, 409);
+  assert.equal((await stateRequest(foreign.runId, alice)).status, 404);
+  assert.equal((await stateRequest(foreign.runId, alice, update)).status, 404);
+  assert.equal(
+    (await stateRequest(own.runId, alice, { ...update, version: 1 }, "https://wrong.example"))
+      .status,
+    403,
+  );
+  assert.deepEqual(await (await stateRequest(own.runId, alice)).json(), saved);
+
+  stage = "shared review membership revocation and another teammate session";
+  await setTeamMembership(db, installationId, 7n, false);
+  assert([401, 403].includes((await stateRequest(own.runId, alice)).status));
+  assert(
+    [401, 403].includes((await stateRequest(own.runId, alice, { ...update, version: 1 })).status),
+  );
+  await setTeamMembership(db, installationId, 8n, true);
+  const bob = await createTeamSession(db, installationId, 8n, "bob");
+  assert(bob);
+  const persistedResponse = await stateRequest(own.runId, bob);
+  assert.equal(persistedResponse.status, 200);
+  assert.deepEqual(await persistedResponse.json(), saved);
   console.log(
-    "Live dashboard smoke passed: real analysis + PostgreSQL + production Next + browser, auth, queue/review data and cross-tenant isolation.",
+    "Live dashboard smoke passed: real analysis + PostgreSQL + production Next + browser, auth, queue/review data, cross-tenant isolation and shared review session API (seeded sessions; no OAuth provider login).",
   );
 } catch {
   console.error(
@@ -248,12 +347,7 @@ try {
       process.exitCode = 1;
     }
   }
-  kill("SIGTERM");
-  if (childClosed) {
-    const force = setTimeout(() => kill("SIGKILL"), 3000);
-    await childClosed;
-    clearTimeout(force);
-  }
+  await stopNext();
   if (db) {
     try {
       // Exact IDs only. Never truncate shared tables or delete another test's workspace.

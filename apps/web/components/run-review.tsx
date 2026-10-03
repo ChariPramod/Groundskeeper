@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, FileCode2, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getDemoReview } from "../lib/review-demo";
 import { isRunReviewData, type RunReviewData } from "../lib/review-types";
+import { SharedReview } from "./shared-review";
 import { Button } from "./ui/button";
 
 type Annotation = { owner: string; note: string; dismissed: boolean; updatedAt: string };
@@ -91,8 +92,10 @@ export function RunReview({
   runId,
   token,
   mode,
+  teamAuth = false,
 }: {
   runId: string;
+  teamAuth?: boolean;
   token: string;
   mode: "demo" | "live";
 }) {
@@ -122,7 +125,7 @@ export function RunReview({
                 if (!response.ok)
                   throw new Error(
                     response.status === 401
-                      ? "Reconnect with a valid access token to review this run."
+                      ? "Sign in again or reconnect with a valid access token to review this run."
                       : response.status === 404
                         ? "This run is unavailable for the connected installation."
                         : "Review details are temporarily unavailable. Try again.",
@@ -237,10 +240,14 @@ export function RunReview({
           </div>
         </article>
       ))}
-      <LocalReview
-        key={`${mode}:${data.repository}:${runId}`}
-        storageKey={`groundskeeper:review:v1:${mode}:${data.repository}:${runId}`}
-      />
+      {mode === "live" && teamAuth ? (
+        <SharedReview key={runId} runId={runId} />
+      ) : (
+        <LocalReview
+          key={`${mode}:${data.repository}:${runId}`}
+          storageKey={`groundskeeper:review:v1:${mode}:${data.repository}:${runId}`}
+        />
+      )}
     </div>
   );
 }
