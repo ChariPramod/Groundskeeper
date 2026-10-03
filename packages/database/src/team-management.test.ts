@@ -225,3 +225,117 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
   },
   30_000,
 );
+
+it.skipIf(!process.env.DATABASE_TEST_URL)(
+  "reads one indexed latest login per member page instead of complete session histories",
+  async () => {
+    const db = new PrismaClient({
+      datasourceUrl: process.env.DATABASE_TEST_URL,
+      log: [{ emit: "event", level: "query" }],
+    });
+    const queries: { query: string; params: string }[] = [];
+    db.$on("query", ({ query, params }) => queries.push({ query, params }));
+    const installationId = BigInt(randomInt(1, 2 ** 47));
+    const created: string[] = [];
+    try {
+      const own = await db.workspace.create({ data: { installationId, account: "paged-team" } });
+      created.push(own.id);
+      const foreign = await db.workspace.create({
+        data: { installationId: installationId + BigInt(2 ** 47), account: "foreign-team" },
+      });
+      created.push(foreign.id);
+      await db.teamMember.createMany({
+        data: [
+          ...Array.from({ length: 52 }, (_, i) => ({
+            workspaceId: own.id,
+            githubUserId: BigInt(i + 1),
+            role: i === 0 ? ("admin" as const) : ("viewer" as const),
+          })),
+          { workspaceId: foreign.id, githubUserId: 1n, role: "admin" },
+        ],
+      });
+      // Long histories and a timestamp tie exercise index stop and deterministic tie-breaking.
+      await db.teamSession.createMany({
+        data: [
+          ...Array.from({ length: 52 }, (_, i) => i + 1)
+            .filter((id) => id !== 2)
+            .flatMap((id) =>
+              Array.from({ length: 64 }, (_, index) => ({
+                tokenHash: `private-session-${own.id}-${id}-${String(index).padStart(3, "0")}`,
+                workspaceId: own.id,
+                githubUserId: BigInt(id),
+                login: index === 63 ? `latest-${id}` : `old-${id}`,
+                createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, Math.min(index, 62))),
+                expiresAt: new Date("2099-01-01"),
+              })),
+            ),
+          {
+            tokenHash: `private-session-${foreign.id}`,
+            workspaceId: foreign.id,
+            githubUserId: 1n,
+            login: "foreign-newest",
+            createdAt: new Date("2098-01-01"),
+            expiresAt: new Date("2099-01-01"),
+          },
+        ],
+      });
+      queries.length = 0;
+      const actor = { source: "member" as const, githubUserId: 1n, login: "latest-1" };
+      const first = await readTeamDirectory(db, { installationId, actor });
+      expect(first.members).toHaveLength(50);
+      expect(first.nextCursor).toBe("50");
+      expect(first.members[0]?.lastKnownLogin).toBe("latest-1");
+      expect(first.members[1]?.lastKnownLogin).toBeNull();
+      expect(first.members[49]?.lastKnownLogin).toBe("latest-50");
+      expect(JSON.stringify(first)).not.toContain("private-session-");
+      expect(JSON.stringify(first)).not.toContain("foreign-newest");
+      const sessionReads = queries.filter(({ query }) => query.includes('FROM "TeamSession"'));
+      expect(sessionReads).toHaveLength(1);
+      const trace = sessionReads[0];
+      if (!trace) throw new Error("Missing latest-session query trace");
+      expect(trace.query).toContain("LEFT JOIN LATERAL");
+      expect(trace.query).toMatch(/SELECT s\.login FROM "TeamSession"/);
+      // EXPLAIN the exact emitted query with its bound identities, not a hand-written approximation.
+      const params = JSON.parse(trace.params) as [string, string, string];
+      type Plan = {
+        "Node Type": string;
+        "Actual Rows": number;
+        "Actual Loops": number;
+        "Index Name"?: string;
+        Output?: string[];
+        Plans?: Plan[];
+      };
+      const explained = await db.$queryRawUnsafe<{ "QUERY PLAN": { Plan: Plan }[] }[]>(
+        `EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) ${trace.query}`,
+        params[0],
+        BigInt(params[1]),
+        params[2],
+      );
+      const plan = explained[0]?.["QUERY PLAN"][0]?.Plan;
+      if (!plan) throw new Error("Missing directory query plan");
+      const flatten = (node: Plan): Plan[] => [node, ...(node.Plans ?? []).flatMap(flatten)];
+      const nodes = flatten(plan);
+      expect(plan["Actual Rows"]).toBe(51);
+      expect(plan.Output?.join(" ")).not.toContain("tokenHash");
+      const sessionLookup = nodes.find(
+        (node) => node["Index Name"] === "TeamSession_member_latest_idx",
+      );
+      expect(sessionLookup).toBeDefined();
+      expect(sessionLookup?.["Actual Loops"]).toBe(51);
+      expect(sessionLookup?.["Actual Rows"]).toBeLessThanOrEqual(1);
+      expect(
+        nodes.some((node) => node["Node Type"] === "Limit" && node["Actual Loops"] === 51),
+      ).toBe(true);
+      const second = await readTeamDirectory(db, { installationId, actor, cursor: 50n });
+      expect(second.members.map((member) => [member.githubUserId, member.lastKnownLogin])).toEqual([
+        ["51", "latest-51"],
+        ["52", "latest-52"],
+      ]);
+      expect(second.nextCursor).toBeNull();
+    } finally {
+      await db.workspace.deleteMany({ where: { id: { in: created } } });
+      await db.$disconnect();
+    }
+  },
+  30_000,
+);

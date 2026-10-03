@@ -22,6 +22,7 @@ import {
   type ReviewInboxFilters,
   type ReviewInboxPage,
 } from "../lib/review-inbox-types";
+import { InboxExport } from "./inbox-export";
 import { SavedInboxViews } from "./saved-inbox-views";
 import { Button } from "./ui/button";
 
@@ -352,6 +353,7 @@ export function ReviewInbox({
           </p>
         )}
       </div>
+      {current && <InboxExport snapshot={current} stale={!!error} busy={busy} />}
       {current && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">

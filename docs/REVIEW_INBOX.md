@@ -29,7 +29,7 @@ Supported query parameters:
 | `repository` | Full `owner/repository` name, maximum 100 characters per segment |
 | `cursor` | Opaque cursor returned by a previous page |
 
-Unknown or repeated parameters and malformed cursors are rejected. Page size and ordering cannot be supplied by a client. Repository names and owners use parameterized Prisma comparisons. Queries are constrained to the authenticated installation and bounded to 21 rows: 20 results and one lookahead row. Responses use `no-store` and vary by cookie and authorization.
+Unknown or repeated parameters and malformed cursors are rejected. Page size and ordering cannot be supplied by a client. Repository names and owners use parameterized SQL comparisons. Queries are constrained to the authenticated installation and bounded to 21 rows: 20 results and one lookahead row. The database selects that page before looking up one latest verification summary per run, and clips notes before transfer. Responses use `no-store` and vary by cookie and authorization.
 
 The API projects counts, summarized evidence outcomes, shared review labels, and short note excerpts. It does not return source claim excerpts or sandbox output. List queries select compact, versioned PostgreSQL-generated summaries instead of the full report JSON. Verification summaries retain up to 100 displayed outcomes and verdict flags calculated over all evidence, so a failure beyond the displayed outcomes still affects status. Full reports remain unchanged for the detailed review. See [query/response architecture](QUERY_RESPONSE_ARCHITECTURE.md).
 
@@ -51,8 +51,18 @@ Corrupt or unsupported stored data is ignored with a visible notice. Storage rea
 - Refresh starts a fresh traversal. New analyses inserted after page one do not get duplicated onto subsequent pages because pagination uses creation time and ID, rather than offsets.
 - Shared review state is mutable, so a team change during a traversal can change membership of subsequent filtered pages. Refresh restarts the view; this is not a point-in-time snapshot of all reviews.
 
+## Export the loaded page
+
+**Export CSV** and **Export JSON** download the current page, with up to 20 review summaries. Exports use the filters attached to the displayed results, even if different filters have been typed but not applied. They do not fetch additional pages or full reports. Review decisions and verification status are separate columns; notes remain snippets of at most 160 characters.
+
+JSON includes the sample/live mode, snapshot time, applied filters, page number, row count, whether more pages exist, and a stale flag after a failed refresh. CSV repeats this context on each result row and has a header-only result for an empty page; use JSON when empty-page metadata matters. Neither format contains the opaque pagination cursor, credentials, source excerpts, or sandbox output. These are page exports, not a complete workspace backup or audit archive.
+
+CSV uses quoted fields, CRLF records and a UTF-8 byte-order mark for spreadsheet compatibility. Formula-like text is prefixed with an apostrophe, including formula prefixes hidden by leading whitespace or controls. JSON preserves the original labels and snippets.
+
+If a download cannot start, selectable export text is shown. **Copy instead** also opens this fallback when a browser silently blocks a download; clipboard failure leaves the text available for manual copying. Exports pause while a new page is loading. Rejected access clears both rows and export controls/text. Files already downloaded or copied are outside the application's control. No export is persisted in browser storage or sent to a third-party service.
+
 ## Validation
 
-28 unit tests cover installation scoping, filter validation, tied-timestamp cursors, pagination boundaries, bounded projection, database cleanup on failure, authentication failures, revoked-access responses, demo filtering, response validation, and prevention of demo fallback in live mode. Web TypeScript and Biome checks pass.
+Tests cover installation scoping, filter validation, tied-timestamp cursors, pagination boundaries, bounded projection, database cleanup on failure, authentication failures, revoked-access responses, demo filtering, response validation, and prevention of demo fallback in live mode. Export tests exercise page metadata, explicit field selection, empty results, CSV formula protection, quoting, download/clipboard fallback and clearing after access rejection.
 
 Real database and browser validation should run through the repository's hosted and end-to-end suites after integration. Successful local or CI checks do not imply a provisioned public live database; deployment readiness remains dependent on the configured hosting and credentials.

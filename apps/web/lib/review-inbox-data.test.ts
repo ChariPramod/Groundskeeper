@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  inboxWhere,
   mapInboxRow,
   parseInboxQuery,
   readReviewInbox,
   reviewInboxResponse,
 } from "./review-inbox-data";
 
-const database = vi.hoisted(() => ({ analysisRun: { findMany: vi.fn() }, disconnect: vi.fn() }));
-vi.mock("@groundskeeper/database/client", () => ({
+const database = vi.hoisted(() => ({
+  $queryRaw: vi.fn(),
+  $executeRaw: vi.fn(),
+  disconnect: vi.fn(),
+}));
+vi.mock("@groundskeeper/database/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@groundskeeper/database/client")>()),
   PrismaClient: class {
     $transaction(callback: (tx: typeof database) => Promise<unknown>) {
       return callback(database);
@@ -52,40 +56,22 @@ const record = (id: string, createdAt = "2026-10-01T12:00:00.000Z") => ({
     updatedAt: new Date(createdAt),
   },
 });
+const projectedRecord = (id: string) => {
+  const value = record(id);
+  return {
+    ...value,
+    fullName: value.repository.fullName,
+    verificationSummary: value.verificationRuns[0]?.summary,
+    reviewId: id,
+    ...value.sharedReview,
+    note: value.sharedReview.note.slice(0, 160),
+  };
+};
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("review inbox filters and tenant boundary", () => {
-  it("keeps installation scope for every filter and cursor", () => {
-    const cursor = Buffer.from(
-      JSON.stringify({ createdAt: "2026-10-01T12:00:00.000Z", id: "foreign-run" }),
-    ).toString("base64url");
-    const query = parseInboxQuery(
-      request(`?status=dismissed&owner=Alex&repository=org/sdk&cursor=${cursor}`).url,
-    );
-    const where = inboxWhere(42n, query);
-    expect(where.repository).toEqual({
-      workspace: { installationId: 42n },
-      fullName: { equals: "org/sdk", mode: "insensitive" },
-    });
-    expect(where.AND).toEqual([
-      { sharedReview: { is: { dismissed: true } } },
-      { sharedReview: { is: { owner: { equals: "Alex", mode: "insensitive" } } } },
-      {
-        OR: [
-          { createdAt: { lt: new Date("2026-10-01T12:00:00.000Z") } },
-          { createdAt: new Date("2026-10-01T12:00:00.000Z"), id: { lt: "foreign-run" } },
-        ],
-      },
-    ]);
-  });
-  it("includes reviews without any saved state as open and unassigned", () => {
-    expect(inboxWhere(42n, parseInboxQuery(request("?unassigned=true").url)).AND).toEqual([
-      { OR: [{ sharedReview: null }, { sharedReview: { is: { dismissed: false } } }] },
-      { OR: [{ sharedReview: null }, { sharedReview: { is: { owner: "" } } }] },
-    ]);
-  });
   it.each([
     "?status=pending",
     "?status=open&status=all",
@@ -120,33 +106,32 @@ describe("review inbox filters and tenant boundary", () => {
 
 describe("review inbox paging and recovery", () => {
   it("fetches a bounded extra row and anchors the next page to the last returned row", async () => {
-    database.analysisRun.findMany.mockResolvedValue(
-      Array.from({ length: 21 }, (_, index) => record(`r${String(99 - index).padStart(3, "0")}`)),
+    database.$queryRaw.mockResolvedValue(
+      Array.from({ length: 21 }, (_, index) =>
+        projectedRecord(`r${String(99 - index).padStart(3, "0")}`),
+      ),
     );
     const page = await readReviewInbox(42n, access.databaseUrl, parseInboxQuery(request().url));
     expect(page.rows).toHaveLength(20);
     const query = parseInboxQuery(request(`?cursor=${page.nextCursor}`).url);
     expect(query.cursor?.id).toBe(page.rows[19]?.id);
-    expect(database.analysisRun.findMany.mock.calls[0]?.[0]).toMatchObject({
-      take: 21,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    });
-    const select = database.analysisRun.findMany.mock.calls[0]?.[0].select;
-    expect(select).not.toHaveProperty("report");
-    expect(select.summary).toBe(true);
-    expect(select.verificationRuns.select).toEqual({ summary: true });
+    expect(database.$queryRaw).toHaveBeenCalledOnce();
+    const statement = database.$queryRaw.mock.calls[0]?.[0];
+    expect(statement.values).toEqual([42n, 21]);
+    expect(statement.sql).toContain("LIMIT 1");
+    expect(statement.sql).not.toContain(".report");
     expect(database.disconnect).toHaveBeenCalledOnce();
   });
   it("ends pagination exactly at the last page", async () => {
-    database.analysisRun.findMany.mockResolvedValue(
-      Array.from({ length: 20 }, (_, index) => record(`r${index}`)),
+    database.$queryRaw.mockResolvedValue(
+      Array.from({ length: 20 }, (_, index) => projectedRecord(`r${index}`)),
     );
     expect(
       (await readReviewInbox(42n, access.databaseUrl, parseInboxQuery(request().url))).nextCursor,
     ).toBeNull();
   });
   it("disconnects the database on failure", async () => {
-    database.analysisRun.findMany.mockRejectedValue(new Error("private connection"));
+    database.$queryRaw.mockRejectedValue(new Error("private connection"));
     await expect(
       readReviewInbox(42n, access.databaseUrl, parseInboxQuery(request().url)),
     ).rejects.toThrow();

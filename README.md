@@ -12,6 +12,8 @@ The **Team access** workspace lets admins add teammates, change roles, and revok
 
 Saved inbox views keep up to eight named filter sets in your browser, separately for each signed-in workspace and user. Dashboard and inbox reads use compact database-generated report summaries, with full evidence available through detailed review. The operator command `pnpm db:maintenance --installation-id 42` provides a dry run of bounded expired-session cleanup and storage diagnostics; see [storage maintenance](docs/STORAGE_MAINTENANCE.md). Apply current migrations before enabling live mode.
 
+The [review inbox](docs/REVIEW_INBOX.md) now exports its loaded page as CSV or JSON, retaining applied filters and snapshot context, with manual-copy fallback. List reads select one latest verification summary per run in PostgreSQL, so old verification histories do not inflate results. For routine session cleanup, `pnpm db:maintenance --installation-id 42 --diagnostics summary` skips full-history counts; add `--apply` only when ready to remove the bounded expired-session batch. Exact storage diagnostics remain the default.
+
 ## Run the demo
 
 Prerequisites: Node.js 22.17+, pnpm 10.33, and uv. Python 3.12 is selected by `.python-version`; uv can provision it. No database, Docker, GitHub credentials, or model API key is needed for local analysis.

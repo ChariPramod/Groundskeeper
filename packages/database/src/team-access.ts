@@ -215,24 +215,31 @@ export async function readTeamDirectory(
       if (!workspace) throw new TeamPermissionError("Workspace is unavailable");
       await requireAdmin(tx, workspace.id, input.actor);
       const [members, events] = await Promise.all([
-        tx.teamMember.findMany({
-          where: {
-            workspaceId: workspace.id,
-            ...(input.cursor === undefined ? {} : { githubUserId: { gt: input.cursor } }),
-          },
-          orderBy: { githubUserId: "asc" },
-          take: 51,
-          select: {
-            githubUserId: true,
-            role: true,
-            createdAt: true,
-            sessions: {
-              take: 1,
-              orderBy: [{ createdAt: "desc" }, { tokenHash: "desc" }],
-              select: { login: true },
-            },
-          },
-        }),
+        // Prisma's nested relation take can load every session before slicing.
+        // Materialize the member page first, then let the matching index stop each
+        // lateral lookup at one login. Token hashes are ordering keys only.
+        tx.$queryRaw<
+          {
+            githubUserId: bigint;
+            role: TeamRole;
+            createdAt: Date;
+            lastKnownLogin: string | null;
+          }[]
+        >`
+          WITH member_page AS MATERIALIZED (
+            SELECT "githubUserId", role, "createdAt"
+            FROM "TeamMember"
+            WHERE "workspaceId" = ${workspace.id} AND "githubUserId" > ${input.cursor ?? 0n}
+            ORDER BY "githubUserId" ASC LIMIT 51
+          )
+          SELECT m."githubUserId", m.role, m."createdAt", latest.login AS "lastKnownLogin"
+          FROM member_page m
+          LEFT JOIN LATERAL (
+            SELECT s.login FROM "TeamSession" s
+            WHERE s."workspaceId" = ${workspace.id} AND s."githubUserId" = m."githubUserId"
+            ORDER BY s."createdAt" DESC, s."tokenHash" DESC LIMIT 1
+          ) latest ON true
+          ORDER BY m."githubUserId" ASC`,
         tx.teamAccessEvent.findMany({
           where: { workspaceId: workspace.id },
           take: 20,
@@ -256,7 +263,7 @@ export async function readTeamDirectory(
           githubUserId: member.githubUserId.toString(),
           role: member.role,
           createdAt: member.createdAt.toISOString(),
-          lastKnownLogin: member.sessions[0]?.login ?? null,
+          lastKnownLogin: member.lastKnownLogin,
         })),
         nextCursor: members.length > 50 ? (page.at(-1)?.githubUserId.toString() ?? null) : null,
         events: events.map((event) => ({

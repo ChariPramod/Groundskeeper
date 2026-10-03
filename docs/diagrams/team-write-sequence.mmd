@@ -1,0 +1,36 @@
+sequenceDiagram
+  accTitle: Admin membership change, audit and response
+  accDescr: A confirmed browser change sends an expected team version to the OAuth-only endpoint. A workspace lock serializes membership changes. Current admin role, version and final-admin protection are rechecked before membership, version and audit commit atomically. Revocation deletes sessions. A conflict or uncertain response requires a roster reload before further editing.
+  autonumber
+  participant UI as Admin team screen
+  participant API as PUT /api/team
+  participant DB as PostgreSQL transaction
+
+  UI->>UI: Confirm target numeric ID and role
+  UI->>API: Cookie + exact Origin + JSON<br/>version, githubUserId, role or null
+  API->>API: Live OAuth and current admin<br/>4 KiB body, strict fields, 5s deadline
+  alt Invalid access or input
+    API-->>UI: 400 / 401 / 403 / 408 / 413 / 415
+    UI->>UI: Explain failure, denied access clears roster
+  else Authorized request
+    API->>DB: Begin bounded transaction
+    DB->>DB: Lock workspace FOR UPDATE<br/>Recheck acting admin<br/>Compare teamVersion
+    alt Stale version or final admin removal
+      DB-->>API: Rollback
+      API-->>UI: 409, reload before editing again
+    else Current version and permitted target change
+      alt Membership actually changes
+        DB->>DB: Grant / change role / revoke<br/>Revocation cascades session deletion
+        DB->>DB: Increment teamVersion<br/>Append actor-attributed TeamAccessEvent
+      else Current-version no-op
+        DB->>DB: Keep version, no invented audit event
+      end
+      DB->>DB: Commit transaction
+      DB-->>API: version + changed
+      API-->>UI: 200 + no-store
+      UI->>API: Reload directory and refresh own session
+      API-->>UI: Confirmed roster or updated access
+      UI->>UI: Enable edits only after successful reload
+    end
+  end
+  Note over UI,DB: Lost responses do not prove rollback. Editing stays paused until reloaded.<br/>The operator CLI uses the same locked engine and final-admin rule,<br/>with operator attribution and no browser version requirement.

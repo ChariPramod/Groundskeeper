@@ -1,6 +1,6 @@
 sequenceDiagram
   accTitle: Review inbox query and response
-  accDescr: The server checks the session and installation, validates filters, reads a bounded summary page, and projects safe fields. Denied access clears private rows, invalid filters return a bad request, and temporary failures preserve the last good page.
+  accDescr: The server checks the session and installation, validates filters, and selects the page before joining its latest verification summaries. PostgreSQL limits each verification lookup to one row and the review note to 160 characters. Denied access clears private rows and invalidates old requests, temporary failures preserve the last good page. CSV and JSON exports reuse that loaded snapshot without another query.
   autonumber
   participant UI as Browser inbox
   participant API as GET /api/reviews
@@ -15,24 +15,28 @@ sequenceDiagram
   alt Missing or revoked access
     Auth-->>API: 401 or 403
     API-->>UI: Access denied, no query results
-    UI->>UI: Clear private rows<br/>Restore sign-in
+    UI->>UI: Clear private rows and exports<br/>Invalidate older requests
   else Authorized
     Auth-->>API: Trusted installation ID
     API->>API: Validate filters and cursor<br/>Keep fixed ordering
     alt Invalid query
       API-->>UI: 400, no result query
     else Valid query
-      API->>DB: Tenant scope + keyset, take 21<br/>Summaries + shared-review projection
+      API->>DB: One parameterized statement<br/>Tenant scope + keyset, page first, limit 21
+      DB->>DB: For each selected run:<br/>LATERAL latest verification, LIMIT 1<br/>Generated summary + short review note
       alt Database unavailable or deadline exceeded
         DB-->>API: Query failure
         API-->>UI: Sanitized 503, no demo fallback
         UI->>UI: Keep last good page<br/>with its applied filters
       else Query succeeds
         DB-->>API: At most 21 rows
-        API->>Map: First 20, cursor from last returned row
+        API->>Map: Validate summary versions and shape<br/>First 20, cursor from last returned row
         Map-->>API: Counts, outcomes, owner, short note<br/>No source excerpt or sandbox output
         API-->>UI: 200 + no-store + nextCursor
-        UI->>UI: Validate live response<br/>Replace snapshot<br/>Ignore stale requests
+        UI->>UI: Validate live response<br/>Replace snapshot, ignore stale requests
+        opt User exports this page
+          UI->>UI: CSV / JSON from loaded rows<br/>Include applied filters + snapshot time<br/>No additional server query
+        end
       end
     end
   end

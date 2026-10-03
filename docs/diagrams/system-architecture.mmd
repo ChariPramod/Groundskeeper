@@ -1,54 +1,58 @@
 flowchart TB
-  accTitle: Groundskeeper system architecture
-  accDescr: The deployed demo web app connects through Next.js and Prisma to a pending live PostgreSQL database. Separate webhook ingress and leased workers analyze pinned GitHub snapshots. Explicit operator commands verify examples with Docker and publish approved draft repairs.
-  subgraph WEB["WEB APPLICATION · deployed on Vercel in demo mode"]
+  accTitle: Groundskeeper system architecture and deployment state
+  accDescr: The Vercel browser workspace currently uses demo fixtures. Its implemented live path authorizes installation-scoped queries and versioned audited writes to PostgreSQL. Separately hosted webhook ingress and leased workers analyze pinned GitHub snapshots without executing examples. Operator commands verify examples, publish approved draft repairs, and clean expired sessions. Live infrastructure remains pending.
+  subgraph WEB["WEB APPLICATION · Vercel deployment"]
     direction LR
-    Browser["Browser workspace<br/>Dashboard · inbox · operations"]
-    Next["Next.js routes<br/>OAuth and role checks"]
-    Prisma["Prisma data access<br/>Installation-scoped queries"]
-    Browser -->|"HTTPS · validated responses"| Next
-    Next --> Prisma
+    Browser["Browser workspace<br/>Dashboard · inbox · operations<br/>Team access · page export"]
+    Demo["Current public mode: demo<br/>Fixtures and local interactions"]
+    Next["Implemented live routes<br/>OAuth · current role · installation<br/>Strict inputs · bounded responses"]
+    Browser -->|"Demo selected"| Demo
+    Browser -->|"Live configured"| Next
   end
 
-  DB[("PostgreSQL · live connection pending<br/>Inbox · immutable reports · summaries<br/>Members · session hashes · review history")]
-  WEB -->|"Bounded reads · transactional writes"| DB
-
-  subgraph PROCESSING["BACKGROUND ANALYSIS · hosting pending"]
+  subgraph DATA["POSTGRESQL · live connection pending"]
     direction LR
-    GitHub["GitHub App<br/>Push and pull-request events"]
-    Ingress["Probot webhook ingress<br/>Signature validation"]
-    Worker["Supervised Node worker<br/>Timeouts · retry · graceful drain"]
-    Snapshots["GitHub snapshot gateway<br/>Pinned commits · blob checks"]
-    Parser["TypeScript parser<br/>Documentation claims"]
-    Python["Python analysis process<br/>Symbols · changes · impact"]
-    Persist["Node result handling<br/>storeAnalysisRun then ackDelivery"]
-    GitHub -->|"Signed delivery"| Ingress
-    Worker --> Snapshots --> Parser --> Python
-    Python -->|"JSON report"| Persist
+    Reports[("Immutable evidence<br/>Analysis and verification reports<br/>Generated list summaries")]
+    Team[("Team and review state<br/>Membership · hashed sessions<br/>Versions · actor-attributed events")]
+    Queue[("Durable recovery records<br/>Deliveries · expiring leases<br/>Publication reservations")]
   end
-  Ingress -->|"Persist routing metadata before acknowledgement"| DB
-  DB -->|"Atomic claim · expiring lease"| Worker
-  Persist -->|"Lease-fenced write, then acknowledgement"| DB
+  Next -->|"Lists · owned details · completion aggregate"| Reports
+  Next <-->|"Current access; atomic state + audit"| Team
+  Next -->|"Queue aggregates and bounded job list"| Queue
 
-  subgraph EXPLICIT["EXPLICIT OPERATOR WORKFLOW"]
+  subgraph PROCESSING["BACKGROUND ANALYSIS · separate hosting pending"]
     direction LR
-    Operator["Operator CLI<br/>Verify · prepare · approve"]
-    Docker["Docker verification<br/>Restricted Python examples"]
+    GitHub["GitHub App events"]
+    Ingress["Probot webhook ingress<br/>Verify signature · persist first"]
+    Worker["Supervised leased worker<br/>Pinned snapshot + blob checks"]
+    Analysis["TypeScript claims parser<br/>Python change and impact analysis<br/>Lease-fenced report persistence<br/>No example execution"]
+    GitHub --> Ingress
+    Worker --> Analysis
+  end
+  Ingress -->|"Minimal routing metadata"| Queue
+  Queue -->|"SKIP LOCKED · fenced lease"| Worker
+  Analysis --> Reports
+  Analysis -->|"Ack after save"| Queue
+
+  subgraph EXPLICIT["EXPLICIT OPERATOR WORKFLOWS"]
+    direction LR
+    Verify["Verify or prepare repair<br/>Restricted Docker examples"]
     Artifacts["Immutable local artifacts<br/>Evidence · proposal · receipts"]
-    Publisher["Repair publisher<br/>Fresh checks · publication lease"]
+    Publish["Approved repair publisher<br/>Fresh verification + publication lease"]
     Draft["GitHub draft PR<br/>Human review"]
-    Operator --> Docker --> Artifacts
-    Artifacts --> Publisher --> Draft
+    Maintenance["Storage maintenance CLI<br/>Bounded expired-session batch<br/>Optional exact diagnostics"]
+    Verify --> Artifacts --> Publish --> Draft
   end
-  DB -->|"Installation-scoped stored run"| Operator
-  Artifacts -->|"Verification report; import available for recovery"| DB
-  Publisher <-->|"Reserve and finalize publication"| DB
+  Reports -->|"Owned pinned analysis"| Verify
+  Artifacts -->|"Persist verification; recover by import"| Reports
+  Publish <-->|"Reserve and finalize"| Queue
+  Maintenance -->|"Dry run by default; explicit apply"| Team
 
   classDef hosted fill:#eaf2ff,stroke:#2563eb,color:#162e55,stroke-width:1.5px;
   classDef pending fill:#fff7e6,stroke:#d49b22,color:#533d17,stroke-width:1.5px;
   classDef operator fill:#f0edff,stroke:#7962b3,color:#362753,stroke-width:1.5px;
   classDef external fill:#f1f5f9,stroke:#64748b,color:#243247,stroke-width:1.5px;
-  class Browser,Next,Prisma hosted;
-  class DB,Ingress,Worker,Snapshots,Parser,Python,Persist pending;
-  class Operator,Docker,Artifacts,Publisher operator;
+  class Browser,Demo,Next hosted;
+  class Reports,Team,Queue,Ingress,Worker,Analysis pending;
+  class Verify,Artifacts,Publish,Maintenance operator;
   class GitHub,Draft external;

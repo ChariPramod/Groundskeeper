@@ -9,9 +9,10 @@ describe("storage maintenance boundaries", () => {
       installationId: 42n,
       limit: 100,
       apply: false,
+      diagnostics: "exact",
     });
     expect(parseMaintenanceArgs(["--installation-id", "42", "--limit", "1000", "--apply"])).toEqual(
-      { installationId: 42n, limit: 1000, apply: true },
+      { installationId: 42n, limit: 1000, apply: true, diagnostics: "exact" },
     );
     for (const args of [
       [],
@@ -22,8 +23,29 @@ describe("storage maintenance boundaries", () => {
       ["--installation-id", "42", "--limit", "1.5"],
       ["--installation-id", "42", "--delete-all"],
       ["--installation-id", "42", "--apply=false"],
+      ["--installation-id", "42", "--diagnostics", "false"],
+      ["--installation-id", "42", "--diagnostics", "summary", "--diagnostics", "exact"],
+      ["--installation-id", "42", "--installation-id", "99"],
+      ["--installation-id", "42", "--apply", "--apply"],
     ])
       expect(() => parseMaintenanceArgs(args)).toThrow();
+  });
+  it("supports bounded summary diagnostics for dry runs and apply", () => {
+    for (const apply of [false, true])
+      expect(
+        parseMaintenanceArgs([
+          "--installation-id",
+          "42",
+          "--diagnostics",
+          "summary",
+          ...(apply ? ["--apply"] : []),
+        ]),
+      ).toEqual({
+        installationId: 42n,
+        limit: 100,
+        apply,
+        diagnostics: "summary",
+      });
   });
   it("uses bounded connections and never exposes invalid connection strings", () => {
     const url = new URL(
@@ -86,6 +108,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         "AnalysisRun",
         "VerificationRun",
         "SharedReviewEvent",
+        "TeamAccessEvent",
         "WebhookDelivery",
         "TeamSession",
       ])
@@ -166,6 +189,9 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
           dismissed: false,
         },
       });
+      await db.$executeRaw`
+        INSERT INTO "TeamAccessEvent" (id, "workspaceId", version, "actorSource", "targetGithubUserId", "newRole")
+        VALUES ('access-audit', 'own', 1, 'operator', 7, 'admin')`;
       await db.webhookDelivery.create({
         data: {
           id: "delivery",
@@ -185,14 +211,22 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         analysisRuns: "1",
         verificationRuns: "1",
         reviewEvents: "1",
+        teamAccessEvents: "1",
         webhookDeliveries: "1",
       });
       expect(JSON.stringify(dry)).not.toContain("not-printed");
-      expect(dry.relationBytes.scope).toContain("database-wide");
+      expect(dry.schemaVersion).toBe(2);
+      expect(dry.diagnostics).toBe("exact");
+      expect(dry.expiredSessionsRemain).toBe(true);
+      expect(dry.relationBytes?.scope).toContain("database-wide");
+      expect(dry.relationBytes?.values.map((value) => value.relation)).toContain("TeamAccessEvent");
+      for (const value of dry.relationBytes?.values ?? []) {
+        expect(BigInt(value.bytes)).toBe(BigInt(value.tableBytes) + BigInt(value.indexBytes));
+      }
       expect(await db.teamSession.count()).toBe(5);
       const [first, next] = await Promise.all([
         maintainStorage(db, { ...options, apply: true }),
-        maintainStorage(second, { ...options, apply: true }),
+        maintainStorage(second, { ...options, apply: true, diagnostics: "summary" }),
       ]);
       expect(first.deletedSessions + next.deletedSessions).toBe(2);
       expect(
@@ -218,12 +252,22 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       );
       await acquired;
       try {
-        expect((await maintainStorage(db, { ...options, apply: true })).deletedSessions).toBe(0);
+        const skipped = await maintainStorage(db, {
+          ...options,
+          apply: true,
+          diagnostics: "summary",
+        });
+        expect(skipped.deletedSessions).toBe(0);
+        expect(skipped.expiredSessionsRemain).toBe(true);
+        expect(skipped.scopedCountsBeforeCleanup).toBeNull();
+        expect(skipped.relationBytes).toBeNull();
       } finally {
         unlock();
         await holding;
       }
-      expect((await maintainStorage(db, { ...options, apply: true })).deletedSessions).toBe(1);
+      const last = await maintainStorage(db, { ...options, apply: true, diagnostics: "summary" });
+      expect(last.deletedSessions).toBe(1);
+      expect(last.expiredSessionsRemain).toBe(false);
       expect(
         await db.teamSession.findMany({
           select: { tokenHash: true },
@@ -233,10 +277,102 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       expect(await db.analysisRun.count()).toBe(1);
       expect(await db.verificationRun.count()).toBe(1);
       expect(await db.sharedReviewEvent.count()).toBe(1);
+      expect(await db.teamAccessEvent.count()).toBe(1);
       expect(await db.webhookDelivery.count()).toBe(1);
     } finally {
       await db.$disconnect();
       await second.$disconnect();
+      await admin.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await admin.$disconnect();
+    }
+  },
+  30000,
+);
+
+it.skipIf(!process.env.DATABASE_TEST_URL)(
+  "summary cleanup depends only on indexed sessions, omits diagnostics, and remains bounded and tenant scoped",
+  async () => {
+    const admin = new PrismaClient({ datasourceUrl: process.env.DATABASE_TEST_URL });
+    const schema = `maintenance_summary_${randomUUID().replaceAll("-", "")}`;
+    const url = new URL(process.env.DATABASE_TEST_URL as string);
+    url.searchParams.set("schema", schema);
+    url.searchParams.set("connection_limit", "1");
+    const db = new PrismaClient({ datasourceUrl: url.toString() });
+    try {
+      await admin.$executeRawUnsafe(`CREATE SCHEMA "${schema}"`);
+      // Deliberately omit all durable-history tables: summary must not touch them.
+      for (const table of ["Workspace", "TeamSession"])
+        await admin.$executeRawUnsafe(
+          `CREATE TABLE "${schema}"."${table}" (LIKE "${table}" INCLUDING ALL)`,
+        );
+      await db.workspace.createMany({
+        data: [
+          { id: "own", installationId: 42n, account: "own" },
+          { id: "foreign", installationId: 99n, account: "foreign" },
+        ],
+      });
+      await db.teamSession.createMany({
+        data: [
+          ...Array.from({ length: 5 }, (_, index) => ({
+            tokenHash: `expired-${index}`,
+            workspaceId: "own",
+            githubUserId: 7n,
+            login: "do-not-print-login",
+            expiresAt: new Date(0),
+          })),
+          {
+            tokenHash: "active",
+            workspaceId: "own",
+            githubUserId: 7n,
+            login: "alice",
+            expiresAt: new Date("2099-01-01"),
+          },
+          {
+            tokenHash: "foreign",
+            workspaceId: "foreign",
+            githubUserId: 8n,
+            login: "bob",
+            expiresAt: new Date(0),
+          },
+        ],
+      });
+      const options = {
+        installationId: 42n,
+        limit: 2,
+        apply: false,
+        diagnostics: "summary" as const,
+      };
+      const dry = await maintainStorage(db, options);
+      expect(dry).toMatchObject({
+        schemaVersion: 2,
+        diagnostics: "summary",
+        mode: "dry-run",
+        scopedCountsBeforeCleanup: null,
+        relationBytes: null,
+        expiredSessionBatch: 2,
+        deletedSessions: 0,
+        expiredSessionsRemain: true,
+      });
+      expect(JSON.stringify(dry)).not.toContain("do-not-print-login");
+      expect(await db.teamSession.count()).toBe(7);
+      // Exact diagnostics fail closed when unavailable; no sessions are removed.
+      await expect(
+        maintainStorage(db, { ...options, diagnostics: "exact", apply: true }),
+      ).rejects.toThrow();
+      expect(await db.teamSession.count()).toBe(7);
+      for (const deleted of [2, 2, 1, 0]) {
+        const result = await maintainStorage(db, { ...options, apply: true });
+        expect(result.deletedSessions).toBe(deleted);
+        expect(result.expiredSessionsRemain).toBe(deleted === 2);
+      }
+      expect(
+        await db.teamSession.findMany({
+          select: { tokenHash: true },
+          orderBy: { tokenHash: "asc" },
+        }),
+      ).toEqual([{ tokenHash: "active" }, { tokenHash: "foreign" }]);
+    } finally {
+      await db.$disconnect();
       await admin.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       await admin.$disconnect();
     }

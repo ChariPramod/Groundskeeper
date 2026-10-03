@@ -4,6 +4,16 @@ The web server is the authorization and projection boundary. The browser never r
 
 The current public deployment is a demo. The sequences below describe implemented live paths that become active once live infrastructure and credentials are configured. Demo data is explicit and never substitutes for a failed live request.
 
+## Request, storage projection, and response
+
+![Live query and response architecture](diagrams/query-response-overview.svg)
+
+[Mermaid source](diagrams/query-response-overview.mmd) · [Open scalable SVG](diagrams/query-response-overview.svg)
+
+The live query layer chooses a bounded projection for each use case. List pages use generated summaries; an explicit evidence request reads one owned report; operations uses aggregates and a short problem-job list. Shared review and membership writes use locked, versioned transactions with an atomic audit event. OAuth authorization remains separate from the data-query counts below. Dashboard-compatible read routes also support the restricted legacy mode described under route contracts.
+
+Successful responses are validated before becoming a browser snapshot. A temporary failure can leave a visibly stale snapshot available for inspection; confirmed rejected access invalidates that private snapshot and older requests. These states are distinct from the explicitly selected demo mode.
+
 ## Read path: filtered review inbox
 
 ![Review inbox query and response sequence](diagrams/query-read-sequence.svg)
@@ -16,7 +26,13 @@ Results use descending creation time and ID. The server reads 21 rows, returns a
 
 PostgreSQL `STORED` generated summaries remove large report JSON from dashboard and inbox list queries. `gk_analysis_summary_v1(report)` derives health counts; `gk_verification_summary_v1(report)` derives a bounded outcome list and full-set `allPassed`/`hasFailed` flags. Readers validate summary versions and shape. Missing or invalid summaries cannot create a verified verdict or trigger a full-report fallback. Valid impact or failure evidence can still produce needs-review; without that evidence the result stays unknown. Detailed review is the separate, explicit path for bounded claim excerpts.
 
+The shared list query selects the analysis page first, then uses an indexed `LEFT JOIN LATERAL` with `ORDER BY createdAt DESC, id DESC LIMIT 1` for each run's verification summary. A run with no verification remains in the page. This bounds database-to-server verification transfer to one summary per selected run, regardless of verification history length. The previous nested ORM relation fetched matching histories before trimming them per parent. Parameterized filters preserve installation isolation; the cursor cutoff is interpreted as UTC independently of the database session's time zone. The inbox projects only the first 160 review-note characters in SQL and preserves the existing response length cap.
+
+The inbox now performs one data query instead of four; the dashboard performs three instead of five. These counts exclude authentication, transaction control, and timeout setup. Existing indexes serve these queries; this iteration adds no schema migration. Query instrumentation and representative PostgreSQL plans verify bounds and counts, not a production speedup claim. Selecting the parent run page can still scan and sort installation history; the tested bounds concern returned child rows and database round trips, not all database work.
+
 After a successful response, the browser validates its shape and live mode before replacing the displayed snapshot. Changing filters starts a new traversal. Aborted or superseded requests cannot overwrite newer results. A temporary failure keeps the last successful page labeled with its actual applied filters; rejected team access clears private rows. The dashboard also clears loaded reports, evidence dialogs, quick-action results and export data after a confirmed `401`/`403`. A request generation check prevents an older refresh from restoring data after that rejection. Saved views persist at most eight names and applied filter sets locally and reissue the same authorized query when selected. Demo and live namespaces are separate. The live namespace uses a server-derived SHA-256 installation/user scope; it is an identifier, not a credential or access grant. Storage failures are visible and fall back to the current in-memory view list.
+
+The page export controls produce CSV or JSON from the loaded rows, applied filters, and snapshot time. They issue no additional request and do not imply a full-workspace export. The same private-data clearing rules apply to export availability. Exporting a retained page during a temporary outage describes its original snapshot rather than claiming a fresh read.
 
 ## Write path: shared review with optimistic concurrency
 
@@ -32,7 +48,11 @@ A successful save replaces the editor's confirmed state and refreshes the inbox 
 
 ## Team administration: versioned membership and audit
 
-Only current admins can read or mutate the installation's team directory. The roster is paged by ascending numeric GitHub ID, at most 50 members plus one lookahead. The response also includes `Workspace.teamVersion` and the latest 20 membership events. Each member projects at most one last-known session login, using the dedicated `(workspaceId, githubUserId, createdAt, tokenHash)` index. This also supports session removal by member; the separate expiry index serves cleanup rather than this lookup. Pagination does not freeze membership across requests, and the bounded event list is not a complete audit export.
+![Admin team membership transaction](diagrams/team-write-sequence.svg)
+
+[Mermaid source](diagrams/team-write-sequence.mmd) · [Open scalable SVG](diagrams/team-write-sequence.svg)
+
+Only current admins can read or mutate the installation's team directory. The roster is paged by ascending numeric GitHub ID, at most 50 members plus one lookahead. The response also includes `Workspace.teamVersion` and the latest 20 membership events. A materialized member page joins each member's latest session with `LATERAL ... LIMIT 1`, using the dedicated `(workspaceId, githubUserId, createdAt, tokenHash)` index. It projects only the last-known login and transfers no historical session rows or token hashes. The index also supports session removal by member; the separate expiry index serves cleanup rather than this lookup. Pagination does not freeze membership across requests, and the bounded event list is not a complete audit export.
 
 The browser submits exactly `version`, `githubUserId` as a decimal string, and `role` (`viewer`, `reviewer`, `admin`, or `null`). The API validates OAuth, current admin role, exact configured Origin, JSON shape, a 4 KiB stream cap, and a five-second body deadline. It derives actor identity and installation from the session. Reviewers and viewers cannot obtain the roster or make changes; their Team access screen is informational.
 
@@ -48,8 +68,8 @@ After a change, the browser reloads the team before enabling another edit. An un
 
 | Route | Live access and scope | Query and response boundary |
 | --- | --- | --- |
-| `GET /api/dashboard` | Dashboard access; installation-scoped repositories, runs, and deliveries | At most 50 repositories, 50 newest runs, and 50 unfinished push/PR deliveries. Compact analysis/latest-verification summaries; at most 100 displayed outcomes per run. |
-| `GET /api/reviews` | Team access; installation scope reapplied on every page | Open/dismissed/all, exact owner, unassigned, exact repository; fixed 20-row keyset pages plus one lookahead. Counts, outcome summaries, owner, 160-character note snippet, version, and update time. No claim excerpts. |
+| `GET /api/dashboard` | Dashboard access; installation-scoped repositories, runs, and deliveries | Three data queries: at most 50 repositories, 50 newest runs, and 50 unfinished push/PR deliveries. Page-first analysis/latest-verification summaries; at most 100 displayed outcomes per run. |
+| `GET /api/reviews` | Team access; installation scope reapplied on every page | One data query; open/dismissed/all, exact owner, unassigned, exact repository; fixed 20-row keyset pages plus one lookahead. Counts, latest-verification outcome summary, owner, SQL-shortened 160-character note snippet, version, and update time. No claim excerpts. |
 | `GET /api/review/:id` | Dashboard access; run ID and installation checked together | One report; at most 20 findings, each with a claim excerpt capped at 4,000 characters and up to 20 linked changed symbols. Latest execution status/reason, no stdout/stderr. A missing or foreign run is `404`. |
 | `GET /api/operations` | Dashboard access; installation-scoped unfinished push/PR deliveries and runs | Three data queries: conditional queue aggregates, analysis aggregate, and at most 10 failed/stalled jobs. Oldest unfinished time, last analysis time and last-24-hour completion count share a repeatable-read snapshot and UTC cutoff. No payload, error text, or lease token; worker status remains unknown. |
 | `GET /api/review/:id/state` | Team access; member and owned-run checks in a transaction | Current shared state and at most 20 latest audit events. Owner max 100 characters, note max 2,000. Does not grant access through the legacy bearer token. |
@@ -67,6 +87,7 @@ OAuth has separate login/callback routes using state and PKCE. Logout is a same-
 | Boundary | Implementation limit or behavior |
 | --- | --- |
 | General live database readers | One connection per request client; five-second connection/pool limits; transaction max wait five seconds and timeout ten seconds; disconnect in `finally`. |
+| Dashboard and inbox lists | Materialized bounded page before indexed latest-verification lookup; four-second statement deadline. Dashboard reads share a repeatable-read transaction; inbox is one data statement. |
 | Team session lookup | Five-second connection/pool and transaction bounds; reads current member role each time. |
 | Shared review transaction | Three-second transaction acquisition and five-second transaction timeout; three-second lock timeout and four-second statement timeout. State and audit update commit together. |
 | Team membership transaction | Workspace lock before member locks; three-second acquisition, five-second transaction, three-second lock and four-second statement timeouts. Membership, team version and audit commit together. |
@@ -87,6 +108,7 @@ A browser request deadline is not a distributed transaction deadline. Session lo
 | Concern | Source |
 | --- | --- |
 | Versioned summary validation | [`report-summaries.ts`](../packages/database/src/report-summaries.ts) |
+| Page-first list query, bounded latest verification and SQL note snippets | [`run-list-query.ts`](../apps/web/lib/run-list-query.ts) |
 | Shared dashboard authorization and summary projection | [`dashboard-data.ts`](../apps/web/lib/dashboard-data.ts) |
 | Inbox filters, keyset query, bounds, and API response | [`review-inbox-data.ts`](../apps/web/lib/review-inbox-data.ts) |
 | Browser inbox validation and failure classification | [`review-inbox-client.ts`](../apps/web/lib/review-inbox-client.ts), [`review-inbox-types.ts`](../apps/web/lib/review-inbox-types.ts) |

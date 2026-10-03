@@ -1,11 +1,12 @@
-import { type Prisma, PrismaClient } from "@groundskeeper/database/client";
-import { mapRun, type SummaryRunRecord } from "./dashboard-data";
+import { PrismaClient } from "@groundskeeper/database/client";
+import { mapRun } from "./dashboard-data";
 import {
   INBOX_PAGE_SIZE,
   type ReviewInboxFilters,
   type ReviewInboxPage,
   type ReviewInboxRow,
 } from "./review-inbox-types";
+import { type RunListRecord, readRunList } from "./run-list-query";
 import { teamAccess, teamAuthEnabled } from "./team-auth";
 
 type Env = Record<string, string | undefined>;
@@ -13,15 +14,6 @@ type Cursor = { createdAt: string; id: string };
 export interface InboxQuery extends ReviewInboxFilters {
   cursor: Cursor | null;
 }
-type InboxRecord = SummaryRunRecord & {
-  sharedReview: {
-    owner: string;
-    note: string;
-    dismissed: boolean;
-    version: number;
-    updatedAt: Date;
-  } | null;
-};
 const headers = { "Cache-Control": "no-store", Vary: "Cookie, Authorization" };
 class QueryError extends Error {}
 const idPattern = /^[A-Za-z0-9_-]{1,200}$/;
@@ -87,37 +79,7 @@ export function parseInboxQuery(url: string): InboxQuery {
   };
 }
 
-export function inboxWhere(
-  installationId: bigint,
-  query: InboxQuery,
-): Prisma.AnalysisRunWhereInput {
-  const AND: Prisma.AnalysisRunWhereInput[] = [];
-  if (query.status === "open")
-    AND.push({ OR: [{ sharedReview: null }, { sharedReview: { is: { dismissed: false } } }] });
-  if (query.status === "dismissed") AND.push({ sharedReview: { is: { dismissed: true } } });
-  if (query.owner)
-    AND.push({ sharedReview: { is: { owner: { equals: query.owner, mode: "insensitive" } } } });
-  if (query.unassigned)
-    AND.push({ OR: [{ sharedReview: null }, { sharedReview: { is: { owner: "" } } }] });
-  if (query.cursor)
-    AND.push({
-      OR: [
-        { createdAt: { lt: new Date(query.cursor.createdAt) } },
-        { createdAt: new Date(query.cursor.createdAt), id: { lt: query.cursor.id } },
-      ],
-    });
-  return {
-    repository: {
-      workspace: { installationId },
-      ...(query.repository
-        ? { fullName: { equals: query.repository, mode: "insensitive" as const } }
-        : {}),
-    },
-    AND,
-  };
-}
-
-export function mapInboxRow(record: InboxRecord): ReviewInboxRow {
+export function mapInboxRow(record: RunListRecord): ReviewInboxRow {
   const review = record.sharedReview;
   return {
     ...mapRun(record),
@@ -145,28 +107,10 @@ export async function readReviewInbox(
   const db = new PrismaClient({ datasources: { db: { url: url.toString() } } });
   try {
     const records = await db.$transaction(
-      (tx) =>
-        tx.analysisRun.findMany({
-          where: inboxWhere(installationId, query),
-          take: INBOX_PAGE_SIZE + 1,
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          select: {
-            id: true,
-            beforeCommit: true,
-            afterCommit: true,
-            createdAt: true,
-            summary: true,
-            repository: { select: { fullName: true } },
-            verificationRuns: {
-              take: 1,
-              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-              select: { summary: true },
-            },
-            sharedReview: {
-              select: { owner: true, note: true, dismissed: true, version: true, updatedAt: true },
-            },
-          },
-        }),
+      async (tx) => {
+        await tx.$executeRaw`SET LOCAL statement_timeout = '4000ms'`;
+        return readRunList(tx, installationId, INBOX_PAGE_SIZE + 1, query);
+      },
       { maxWait: 5000, timeout: 10000 },
     );
     const page = records.slice(0, INBOX_PAGE_SIZE);

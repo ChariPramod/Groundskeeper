@@ -1,0 +1,39 @@
+flowchart TB
+  accTitle: Groundskeeper live query and response architecture
+  accDescr: Every live route authorizes the current identity and derives installation scope before querying. Dashboard and inbox reads use compact summaries and only the latest verification. Detailed evidence is an explicit owned-report read. Operations uses three queries; membership and shared-review mutations commit state and audit together. Validated private responses are never cached. The browser retains the last good snapshot on temporary failures, clears rejected access, and exports only the loaded inbox page.
+  Request["Browser request<br/>Session cookie · filters · cursor<br/>Expected version for writes"]
+  Guard["Next.js access and input checks<br/>Server-derived installation and actor<br/>Current role · strict query or JSON"]
+  Request --> Guard
+
+  subgraph QUERIES["DATABASE READ PROJECTIONS"]
+    direction LR
+    Lists["Dashboard / inbox<br/>50 runs / 20 + 1 rows<br/>Generated summaries<br/>Latest verification only"]
+    Detail["Evidence detail<br/>One owned report<br/>20 findings · bounded excerpts<br/>No sandbox streams"]
+    Operations["Operations<br/>Queue + analysis aggregates<br/>10 failed or stalled jobs<br/>Three data queries"]
+    Directory["Team directory · admin only<br/>50 + 1 members<br/>Latest 20 membership events<br/>No session hashes"]
+  end
+  Guard --> Lists
+  Guard --> Detail
+  Guard --> Operations
+  Guard --> Directory
+
+  Writes["Shared review / team changes<br/>Same-origin write role<br/>Lock · compare expected version<br/>State + actor event commit together"]
+  Guard --> Writes
+  Project["Validate and project response<br/>Safe summaries or bounded details<br/>Cache-Control: no-store"]
+  Lists --> Project
+  Detail --> Project
+  Operations --> Project
+  Directory --> Project
+  Writes --> Project
+  Snapshot["Browser confirmed snapshot<br/>Validate live shape · ignore stale requests<br/>Inbox CSV / JSON export uses loaded page"]
+  Project -->|"200"| Snapshot
+  Guard -->|"401 / 403"| Denied["Clear private data<br/>Invalidate older requests<br/>Require restored access"]
+  Writes -->|"409 or uncertain response"| Reload["Pause saves<br/>Reload current server version"]
+  Project -.->|"Temporary read failure · 503"| Retain["Retain last good snapshot<br/>Show its applied filters and time<br/>No automatic demo fallback"]
+
+  classDef boundary fill:#eaf2ff,stroke:#2563eb,color:#162e55;
+  classDef store fill:#fff7e6,stroke:#d49b22,color:#533d17;
+  classDef action fill:#f0edff,stroke:#7962b3,color:#362753;
+  class Request,Guard,Project,Snapshot boundary;
+  class Lists,Detail,Operations,Directory store;
+  class Writes,Denied,Reload,Retain action;

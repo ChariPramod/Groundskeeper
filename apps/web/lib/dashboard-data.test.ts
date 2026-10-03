@@ -9,11 +9,13 @@ import { getDemoDashboard } from "./demo-data";
 
 const database = vi.hoisted(() => ({
   repository: { findMany: vi.fn() },
-  analysisRun: { findMany: vi.fn() },
+  $queryRaw: vi.fn(),
+  $executeRaw: vi.fn(),
   webhookDelivery: { findMany: vi.fn() },
   disconnect: vi.fn(),
 }));
-vi.mock("@groundskeeper/database/client", () => ({
+vi.mock("@groundskeeper/database/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@groundskeeper/database/client")>()),
   PrismaClient: class {
     $transaction(callback: (tx: typeof database) => Promise<unknown>) {
       return callback(database);
@@ -191,7 +193,9 @@ describe("live query boundaries", () => {
     database.repository.findMany.mockResolvedValue([
       { id: "repo1", githubId: 7n, fullName: "org/sdk", defaultBranch: "main" },
     ]);
-    database.analysisRun.findMany.mockResolvedValue([record]);
+    database.$queryRaw.mockResolvedValue([
+      { ...record, fullName: "org/sdk", verificationSummary: null, reviewId: null },
+    ]);
     database.webhookDelivery.findMany.mockResolvedValue([
       {
         id: "d1",
@@ -208,16 +212,12 @@ describe("live query boundaries", () => {
     expect(database.repository.findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({ where: { workspace: { installationId: 42n } }, take: 50 }),
     );
-    expect(database.analysisRun.findMany).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        where: { repository: { workspace: { installationId: 42n } } },
-        take: 50,
-      }),
-    );
-    const runQuery = database.analysisRun.findMany.mock.lastCall?.[0];
-    expect(runQuery.select).not.toHaveProperty("report");
-    expect(runQuery.select.summary).toBe(true);
-    expect(runQuery.select.verificationRuns.select).toEqual({ summary: true });
+    expect(database.$queryRaw).toHaveBeenCalledOnce();
+    const runQuery = database.$queryRaw.mock.lastCall?.[0];
+    expect(runQuery.values).toEqual([42n, 50]);
+    expect(runQuery.sql).toContain("LIMIT 1");
+    expect(runQuery.sql).not.toContain(".report");
+    expect(runQuery.sql).not.toContain('"SharedReview"');
     const queueQuery = database.webhookDelivery.findMany.mock.lastCall?.[0];
     expect(queueQuery.where).toEqual({
       installationId: 42n,

@@ -6,6 +6,7 @@ import {
 } from "@groundskeeper/database/report-summaries";
 import type { DashboardData, DashboardRun, EvidenceStatus } from "./dashboard-types";
 import { getDemoDashboard } from "./demo-data";
+import { readRunList } from "./run-list-query";
 import { teamAccess, teamAuthEnabled } from "./team-auth";
 
 type Environment = Record<string, string | undefined>;
@@ -76,30 +77,14 @@ export async function readLiveDashboard(
   try {
     return await db.$transaction(
       async (tx) => {
+        await tx.$executeRaw`SET LOCAL statement_timeout = '4000ms'`;
         const repositories = await tx.repository.findMany({
           where: { workspace: { installationId } },
           take: 50,
           orderBy: { fullName: "asc" },
           select: { id: true, githubId: true, fullName: true, defaultBranch: true },
         });
-        const runs = await tx.analysisRun.findMany({
-          where: { repository: { workspace: { installationId } } },
-          take: 50,
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          select: {
-            id: true,
-            beforeCommit: true,
-            afterCommit: true,
-            createdAt: true,
-            summary: true,
-            repository: { select: { fullName: true } },
-            verificationRuns: {
-              take: 1,
-              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-              select: { summary: true },
-            },
-          },
-        });
+        const runs = await readRunList(tx, installationId, 50);
         const deliveries = await tx.webhookDelivery.findMany({
           where: { installationId, event: { in: ["push", "pull_request"] }, processedAt: null },
           take: 50,
@@ -116,6 +101,7 @@ export async function readLiveDashboard(
           },
         });
         const now = new Date();
+        const repositoryNames = new Map(repositories.map((repo) => [repo.githubId, repo.fullName]));
         return {
           mode: "live",
           generatedAt: now.toISOString(),
@@ -127,8 +113,9 @@ export async function readLiveDashboard(
           queue: deliveries.map((delivery) => ({
             id: delivery.id,
             repository:
-              repositories.find((repo) => repo.githubId === delivery.repositoryId)?.fullName ??
-              "Unindexed repository",
+              (delivery.repositoryId === null
+                ? null
+                : repositoryNames.get(delivery.repositoryId)) ?? "Unindexed repository",
             event: delivery.event,
             status: delivery.failedAt
               ? "failed"
@@ -143,7 +130,7 @@ export async function readLiveDashboard(
           })),
         };
       },
-      { maxWait: 5_000, timeout: 10_000 },
+      { maxWait: 5_000, timeout: 10_000, isolationLevel: "RepeatableRead" },
     );
   } finally {
     await db.$disconnect();
