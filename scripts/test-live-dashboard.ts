@@ -438,6 +438,47 @@ try {
   await inbox("", [own.runId]);
   await inbox("?unassigned=true", [own.runId]);
   await inbox("?status=dismissed", []);
+
+  stage = "real keyset pagination across equal timestamps";
+  const paginationSource = await db.analysisRun.findUniqueOrThrow({
+    where: { id: own.runId },
+  });
+  const pageIds = Array.from(
+    { length: 21 },
+    (_, index) => `live-page-${suffix}-${index.toString().padStart(2, "0")}`,
+  );
+  // All 21 added rows share one timestamp, forcing the second page to use the ID tie-breaker.
+  // Their repository belongs to the isolated workspace, so existing cascade cleanup owns them.
+  const tiedTimestamp = new Date(paginationSource.createdAt.getTime() + 1);
+  await db.analysisRun.createMany({
+    data: pageIds.map((id) => ({
+      id,
+      repositoryId: paginationSource.repositoryId,
+      deliveryId: `${id}-delivery`,
+      beforeCommit: paginationSource.beforeCommit,
+      afterCommit: paginationSource.afterCommit,
+      inputDigest: paginationSource.inputDigest,
+      report: paginationSource.report as Prisma.InputJsonObject,
+      createdAt: tiedTimestamp,
+    })),
+  });
+  const firstPageResponse = await teamGet("/api/reviews?status=all");
+  assert.equal(firstPageResponse.status, 200);
+  const firstPage = await firstPageResponse.json();
+  assert.equal(firstPage.rows.length, 20);
+  assert.equal(typeof firstPage.nextCursor, "string");
+  assert(firstPage.nextCursor.length > 0);
+  const secondPageResponse = await teamGet(
+    `/api/reviews?status=all&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+  );
+  assert.equal(secondPageResponse.status, 200);
+  const secondPage = await secondPageResponse.json();
+  assert.equal(secondPage.rows.length, 2);
+  assert.equal(secondPage.nextCursor, null);
+  const pagedIds = [...firstPage.rows, ...secondPage.rows].map((row: { id: string }) => row.id);
+  assert.equal(new Set(pagedIds).size, 22);
+  assert.deepEqual(new Set(pagedIds), new Set([own.runId, ...pageIds]));
+  assert(!JSON.stringify([firstPage, secondPage]).includes(foreign.fullName));
   console.log(
     "Live dashboard smoke passed: real analysis + PostgreSQL + production Next + browser, scoped review inbox, immediate role changes, shared review audit and redacted operations (seeded sessions; no OAuth provider login).",
   );
