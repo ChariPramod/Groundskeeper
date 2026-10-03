@@ -24,11 +24,11 @@ export async function claimNextDelivery(
         WHERE (event = ${event} OR (${event} = 'all' AND event IN ('push', 'pull_request')))
           AND "processedAt" IS NULL AND "failedAt" IS NULL
           AND "attemptCount" >= ${PUSH_MAX_ATTEMPTS}
-          AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= clock_timestamp())
+          AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= (clock_timestamp() AT TIME ZONE 'UTC'))
         LIMIT 100 FOR UPDATE SKIP LOCKED
       )
       UPDATE "WebhookDelivery" AS delivery
-      SET "failedAt" = clock_timestamp(), "leaseToken" = NULL, "leaseExpiresAt" = NULL,
+      SET "failedAt" = (clock_timestamp() AT TIME ZONE 'UTC'), "leaseToken" = NULL, "leaseExpiresAt" = NULL,
           "nextAttemptAt" = NULL, "lastError" = COALESCE("lastError", 'LeaseExpired')
       FROM exhausted WHERE delivery.id = exhausted.id
     `;
@@ -38,14 +38,14 @@ export async function claimNextDelivery(
         WHERE (event = ${event} OR (${event} = 'all' AND event IN ('push', 'pull_request')))
           AND "processedAt" IS NULL AND "failedAt" IS NULL
           AND "attemptCount" < ${PUSH_MAX_ATTEMPTS}
-          AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= clock_timestamp())
-          AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= clock_timestamp())
+          AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= (clock_timestamp() AT TIME ZONE 'UTC'))
+          AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= (clock_timestamp() AT TIME ZONE 'UTC'))
         ORDER BY "receivedAt", id
         LIMIT 1 FOR UPDATE SKIP LOCKED
       )
       UPDATE "WebhookDelivery" AS delivery
       SET "leaseToken" = ${randomUUID()},
-          "leaseExpiresAt" = clock_timestamp() + interval '10 minutes',
+          "leaseExpiresAt" = (clock_timestamp() AT TIME ZONE 'UTC') + interval '10 minutes',
           "attemptCount" = "attemptCount" + 1, "nextAttemptAt" = NULL
       FROM candidate WHERE delivery.id = candidate.id
       RETURNING delivery.*
@@ -63,10 +63,10 @@ export async function ackDelivery(
 ): Promise<boolean> {
   const changed = await database.$executeRaw`
     UPDATE "WebhookDelivery"
-    SET "processedAt" = clock_timestamp(), "leaseToken" = NULL, "leaseExpiresAt" = NULL,
+    SET "processedAt" = (clock_timestamp() AT TIME ZONE 'UTC'), "leaseToken" = NULL, "leaseExpiresAt" = NULL,
         "nextAttemptAt" = NULL, "lastError" = NULL
     WHERE id = ${id} AND event = ${event} AND "leaseToken" = ${token}
-      AND "leaseExpiresAt" > clock_timestamp() AND "processedAt" IS NULL AND "failedAt" IS NULL
+      AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC') AND "processedAt" IS NULL AND "failedAt" IS NULL
   `;
   return changed === 1;
 }
@@ -83,11 +83,11 @@ export async function failDelivery(
   const changed = await database.$executeRaw`
     UPDATE "WebhookDelivery"
     SET "lastError" = ${category}, "leaseToken" = NULL, "leaseExpiresAt" = NULL,
-        "failedAt" = CASE WHEN "attemptCount" >= ${PUSH_MAX_ATTEMPTS} THEN clock_timestamp() ELSE NULL END,
+        "failedAt" = CASE WHEN "attemptCount" >= ${PUSH_MAX_ATTEMPTS} THEN (clock_timestamp() AT TIME ZONE 'UTC') ELSE NULL END,
         "nextAttemptAt" = CASE WHEN "attemptCount" < ${PUSH_MAX_ATTEMPTS}
-          THEN clock_timestamp() + interval '5 minutes' ELSE NULL END
+          THEN (clock_timestamp() AT TIME ZONE 'UTC') + interval '5 minutes' ELSE NULL END
     WHERE id = ${id} AND event = ${event} AND "leaseToken" = ${token}
-      AND "leaseExpiresAt" > clock_timestamp() AND "processedAt" IS NULL AND "failedAt" IS NULL
+      AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC') AND "processedAt" IS NULL AND "failedAt" IS NULL
   `;
   return changed === 1;
 }

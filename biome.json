@@ -13,7 +13,8 @@
       "!**/.venv",
       "!**/next-env.d.ts",
       "!**/test-results",
-      "!**/playwright-report"
+      "!**/playwright-report",
+      "!docs/diagrams/*.svg"
     ]
   },
   "formatter": {

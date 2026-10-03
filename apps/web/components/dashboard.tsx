@@ -451,7 +451,9 @@ export function Dashboard({
             {view === "Review inbox" ? (
               data?.mode === "demo" || teamAuth ? (
                 <ReviewInbox
+                  key={`${data?.mode ?? "live"}:${session?.viewScope ?? "unconfirmed"}`}
                   mode={data?.mode ?? (liveConfigured ? "live" : "demo")}
+                  viewScope={session?.viewScope ?? null}
                   onOpenRun={openRun}
                   refreshKey={featureRevision}
                 />

@@ -3,6 +3,98 @@ import { getDemoDashboard } from "../lib/demo-data";
 import { demoOperations } from "../lib/operations-types";
 import { demoReviewInbox } from "../lib/review-inbox-client";
 import { defaultInboxFilters } from "../lib/review-inbox-types";
+import { savedViewsKey } from "../lib/saved-inbox-views";
+
+test("saved inbox views survive reload, apply filters, update and delete", async ({ page }) => {
+  const openInbox = async () => {
+    await page.goto("/");
+    await page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("button", { name: "Review inbox", exact: true })
+      .click();
+  };
+  await openInbox();
+  await page.getByLabel("Owner · exact label").fill("maya");
+  await page.getByLabel("View name", { exact: true }).fill("Maya’s queue");
+  await expect(page.getByRole("button", { name: "Save view", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByRole("button", { name: "Save view", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Saved “Maya’s queue”." })).toBeVisible();
+  await openInbox();
+  await page.getByLabel("Saved inbox view").selectOption("Maya’s queue");
+  await page.getByRole("button", { name: "Load view", exact: true }).click();
+  await expect(page.getByLabel("Owner · exact label")).toHaveValue("maya");
+  await expect(page.getByText("1 review on this page", { exact: false })).toBeVisible();
+  await page.getByLabel("Unassigned only").check();
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByLabel("View name", { exact: true }).fill("Maya’s queue");
+  await page.getByRole("button", { name: "Update view", exact: true }).click();
+  await expect(page.getByText("Private to this browser · 1/8 views")).toBeVisible();
+  await page.getByRole("button", { name: "Clear filters" }).first().click();
+  await page.getByRole("button", { name: "Load view", exact: true }).click();
+  await expect(page.getByLabel("Unassigned only")).toBeChecked();
+  await page.getByRole("button", { name: "Delete selected view" }).click();
+  await openInbox();
+  await expect(page.getByLabel("Saved inbox view")).toBeDisabled();
+});
+
+test("saved views recover from corrupt storage and keep working in memory when writes fail", async ({
+  page,
+}) => {
+  await page.addInitScript((key) => {
+    localStorage.setItem(key, "{corrupt");
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (name, value) {
+      if (name.startsWith("groundskeeper:inbox-views:"))
+        throw new DOMException("Full", "QuotaExceededError");
+      return original.call(this, name, value);
+    };
+  }, savedViewsKey("demo"));
+  await page.goto("/");
+  await page
+    .getByRole("navigation", { name: "Main navigation" })
+    .getByRole("button", { name: "Review inbox", exact: true })
+    .click();
+  await expect(page.getByText("Saved views could not be read.", { exact: false })).toBeVisible();
+  await page.getByLabel("View name", { exact: true }).fill("This visit");
+  await page.getByRole("button", { name: "Save view", exact: true }).click();
+  await expect(page.getByText("Browser storage is unavailable.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Load view", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Review .* at / }).first()).toBeVisible();
+});
+
+test("saved live views are isolated by authenticated workspace and user", async ({ page }) => {
+  const dashboard = getDemoDashboard();
+  dashboard.mode = "live";
+  const inbox = demoReviewInbox(defaultInboxFilters);
+  inbox.mode = "live";
+  let viewScope = "a".repeat(64);
+  await page.route("**/api/dashboard", (route) => route.fulfill({ json: dashboard }));
+  await page.route("**/api/auth/session", (route) =>
+    route.fulfill({ json: { githubUserId: "7", login: "alice", role: "reviewer", viewScope } }),
+  );
+  await page.route("**/api/reviews?*", (route) => route.fulfill({ json: inbox }));
+  const openInbox = async () => {
+    await page.goto("http://127.0.0.1:4175");
+    await page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("button", { name: "Review inbox", exact: true })
+      .click();
+  };
+  await openInbox();
+  await page.getByLabel("View name", { exact: true }).fill("Workspace A");
+  await page.getByRole("button", { name: "Save view", exact: true }).click();
+  await page.getByLabel("Owner · exact label").fill("private-owner-a");
+  viewScope = "b".repeat(64);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.getByText("Private to this browser · 0/8 views")).toBeVisible();
+  await expect(page.getByLabel("Owner · exact label")).toHaveValue("");
+  await expect(page.getByLabel("Saved inbox view")).toBeDisabled();
+  viewScope = "a".repeat(64);
+  await openInbox();
+  await page.getByLabel("Saved inbox view").selectOption("Workspace A");
+  await expect(page.getByRole("button", { name: "Load view", exact: true })).toBeEnabled();
+});
 
 test("quick actions support keyboard navigation, empty search and focus return", async ({
   page,

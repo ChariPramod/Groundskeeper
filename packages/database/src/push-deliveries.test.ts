@@ -24,6 +24,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL).each(["push", "pull_request"] as const
     const schema = `leases_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(process.env.DATABASE_TEST_URL as string);
     url.searchParams.set("schema", schema);
+    url.searchParams.set("connection_limit", "1");
     const database = new PrismaClient({ datasourceUrl: url.toString() });
     const other = new PrismaClient({ datasourceUrl: url.toString() });
     const ids = [randomUUID(), randomUUID()];
@@ -37,6 +38,8 @@ it.skipIf(!process.env.DATABASE_TEST_URL).each(["push", "pull_request"] as const
           `CREATE TABLE "${schema}"."${table}" (LIKE "${table}" INCLUDING ALL)`,
         );
       }
+      await database.$executeRawUnsafe("SET TIME ZONE 'Asia/Tokyo'");
+      await other.$executeRawUnsafe("SET TIME ZONE 'America/Los_Angeles'");
       await database.webhookDelivery.createMany({
         data: ids.map((id) => ({
           id,
@@ -52,6 +55,8 @@ it.skipIf(!process.env.DATABASE_TEST_URL).each(["push", "pull_request"] as const
       const second = claims[1];
       if (!first?.leaseToken || !second?.leaseToken) throw new Error("Claims missing leases");
       expect(first.attemptCount).toBe(1);
+      expect(first.leaseExpiresAt?.getTime()).toBeGreaterThan(Date.now() + 540_000);
+      expect(first.leaseExpiresAt?.getTime()).toBeLessThan(Date.now() + 660_000);
       expect(await claimNextDelivery(other, event === "push" ? "pull_request" : "push")).toBeNull();
       expect(
         await ackDelivery(
@@ -64,7 +69,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL).each(["push", "pull_request"] as const
       expect(await ackPush(database, first.id, "wrong-token")).toBe(false);
       expect(await ackPush(database, second.id, second.leaseToken)).toBe(true);
       expect(await claimNextPush(other)).toBeNull();
-      await database.$executeRaw`UPDATE "WebhookDelivery" SET "leaseExpiresAt" = clock_timestamp() - interval '1 second' WHERE id = ${first.id}`;
+      await database.$executeRaw`UPDATE "WebhookDelivery" SET "leaseExpiresAt" = (clock_timestamp() AT TIME ZONE 'UTC') - interval '1 second' WHERE id = ${first.id}`;
       expect(await ackPush(database, first.id, first.leaseToken)).toBe(false);
       const reclaimed = await claimNextPush(other);
       expect(reclaimed?.id).toBe(first.id);

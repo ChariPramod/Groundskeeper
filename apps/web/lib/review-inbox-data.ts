@@ -1,5 +1,5 @@
 import { type Prisma, PrismaClient } from "@groundskeeper/database/client";
-import { mapRun, type RunRecord } from "./dashboard-data";
+import { mapRun, type SummaryRunRecord } from "./dashboard-data";
 import {
   INBOX_PAGE_SIZE,
   type ReviewInboxFilters,
@@ -13,7 +13,7 @@ type Cursor = { createdAt: string; id: string };
 export interface InboxQuery extends ReviewInboxFilters {
   cursor: Cursor | null;
 }
-type InboxRecord = RunRecord & {
+type InboxRecord = SummaryRunRecord & {
   sharedReview: {
     owner: string;
     note: string;
@@ -155,12 +155,12 @@ export async function readReviewInbox(
             beforeCommit: true,
             afterCommit: true,
             createdAt: true,
-            report: true,
+            summary: true,
             repository: { select: { fullName: true } },
             verificationRuns: {
               take: 1,
               orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-              select: { report: true },
+              select: { summary: true },
             },
             sharedReview: {
               select: { owner: true, note: true, dismissed: true, version: true, updatedAt: true },

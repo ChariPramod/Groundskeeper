@@ -19,7 +19,8 @@ async function probe(databaseUrl: string, team: boolean) {
           await tx.sharedReviewEvent.findFirst({ select: { version: true } });
         }
         await tx.workspace.findFirst({ select: { id: true } });
-        await tx.analysisRun.findFirst({ select: { id: true } });
+        await tx.analysisRun.findFirst({ select: { summary: true } });
+        await tx.verificationRun.findFirst({ select: { summary: true } });
         await tx.webhookDelivery.findFirst({ select: { leaseExpiresAt: true, failedAt: true } });
       },
       { maxWait: 3000, timeout: 3000 },

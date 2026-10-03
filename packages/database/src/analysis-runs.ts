@@ -63,6 +63,8 @@ export async function storeAnalysisRun(
   event: "push" | "pull_request" = "push",
 ): Promise<{ runId: string; created: boolean }> {
   validate(input);
+  // Snapshot the report before any await so the stored report and its digest cannot diverge.
+  const report = JSON.parse(canonicalJson(input.report)) as Prisma.InputJsonObject;
   const beforeCommit = input.beforeCommit.toLowerCase();
   const afterCommit = input.afterCommit.toLowerCase();
   const inputDigest = createHash("sha256")
@@ -72,7 +74,7 @@ export async function storeAnalysisRun(
         repositoryId: input.repository.githubId.toString(),
         beforeCommit,
         afterCommit,
-        report: input.report,
+        report,
       }),
     )
     .digest("hex");
@@ -89,13 +91,14 @@ export async function storeAnalysisRun(
           const owned = await tx.$queryRaw<{ id: string }[]>`
             SELECT id FROM "WebhookDelivery"
             WHERE id = ${input.deliveryId} AND event = ${event} AND "leaseToken" = ${leaseToken}
-              AND "leaseExpiresAt" > clock_timestamp() AND "processedAt" IS NULL AND "failedAt" IS NULL
+              AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC') AND "processedAt" IS NULL AND "failedAt" IS NULL
             FOR UPDATE
           `;
           if (owned.length !== 1) throw new PushLeaseLostError();
         }
         const existing = await tx.analysisRun.findUnique({
           where: { deliveryId: input.deliveryId },
+          select: { id: true, inputDigest: true },
         });
         if (existing) return existingResult(existing);
         const workspace = await tx.workspace.upsert({
@@ -120,8 +123,9 @@ export async function storeAnalysisRun(
             beforeCommit,
             afterCommit,
             inputDigest,
-            report: input.report,
+            report,
           },
+          select: { id: true },
         });
         return { runId: run.id, created: true };
       });

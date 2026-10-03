@@ -27,6 +27,7 @@
     "db:migrate": "tsx apps/github/src/database-main.ts migrate",
     "db:validate": "tsx apps/github/src/database-main.ts validate",
     "db:status": "tsx apps/github/src/database-main.ts status",
+    "db:maintenance": "tsx packages/database/src/maintenance-main.ts",
     "queue": "tsx apps/github/src/queue-main.ts",
     "dev": "pnpm --filter @groundskeeper/web dev",
     "web:start": "pnpm --filter @groundskeeper/web start",

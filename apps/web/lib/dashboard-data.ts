@@ -1,5 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { PrismaClient } from "@groundskeeper/database/client";
+import {
+  readAnalysisSummary,
+  readVerificationSummary,
+} from "@groundskeeper/database/report-summaries";
 import type { DashboardData, DashboardRun, EvidenceStatus } from "./dashboard-types";
 import { getDemoDashboard } from "./demo-data";
 import { teamAccess, teamAuthEnabled } from "./team-auth";
@@ -7,13 +11,6 @@ import { teamAccess, teamAuthEnabled } from "./team-auth";
 type Environment = Record<string, string | undefined>;
 type Reader = (installationId: bigint, databaseUrl: string) => Promise<DashboardData>;
 const headers = { "Cache-Control": "no-store", Vary: "Authorization, Cookie" };
-const object = (value: unknown): Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-const count = (value: unknown) =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
-
 export interface RunRecord {
   id: string;
   repository: { fullName: string };
@@ -24,36 +21,21 @@ export interface RunRecord {
   verificationRuns: { report: unknown }[];
 }
 
-/** Project counts and execution outcomes only; never expose claim text or sandbox output. */
-export function mapRun(record: RunRecord): DashboardRun {
-  const report = object(record.report);
-  const health = object(report.health);
-  const verification = object(record.verificationRuns[0]?.report);
-  const rawEvidence = Array.isArray(verification.evidence) ? verification.evidence : [];
-  const evidence = rawEvidence.slice(0, 100).map((raw, index) => {
-    const item = object(raw);
-    const status: EvidenceStatus = ["passed", "failed", "skipped", "error"].includes(
-      String(item.outcome),
-    )
-      ? (item.outcome as EvidenceStatus)
-      : "error";
-    const descriptions: Record<EvidenceStatus, string> = {
-      passed: "This Python example completed successfully under recorded verification checks.",
-      failed: "This Python example did not pass verification. Review the stored evidence locally.",
-      skipped: "This example was not executed. Review prerequisites and execution limits.",
-      error: "Verification could not complete. Restore the execution environment and rerun.",
-    };
-    return {
-      id: `${record.id}-evidence-${index}`,
-      label: `Python example ${index + 1}`,
-      status,
-      detail: descriptions[status],
-    };
-  });
-  const affectedClaims = count(health.affected_claims);
-  // A passed subset is not proof that every selected example passed.
-  const allPassed =
-    rawEvidence.length > 0 && rawEvidence.every((raw) => object(raw).outcome === "passed");
+export interface SummaryRunRecord extends Omit<RunRecord, "report" | "verificationRuns"> {
+  summary: unknown;
+  verificationRuns: { summary: unknown }[];
+}
+
+/** Read bounded generated projections; detailed evidence remains in the immutable reports. */
+export function mapRun(record: SummaryRunRecord): DashboardRun {
+  const analysis = readAnalysisSummary(record.summary);
+  const verification = readVerificationSummary(record.verificationRuns[0]?.summary);
+  const descriptions: Record<EvidenceStatus, string> = {
+    passed: "This Python example completed successfully under recorded verification checks.",
+    failed: "This Python example did not pass verification. Review the stored evidence locally.",
+    skipped: "This example was not executed. Review prerequisites and execution limits.",
+    error: "Verification could not complete. Restore the execution environment and rerun.",
+  };
   return {
     id: record.id,
     repository: {
@@ -63,15 +45,20 @@ export function mapRun(record: RunRecord): DashboardRun {
     beforeCommit: record.beforeCommit,
     afterCommit: record.afterCommit,
     createdAt: record.createdAt.toISOString(),
-    affectedClaims,
-    totalClaims: count(health.total_claims),
+    affectedClaims: analysis?.affectedClaims ?? 0,
+    totalClaims: analysis?.totalClaims ?? 0,
     status:
-      affectedClaims > 0 || rawEvidence.some((raw) => object(raw).outcome === "failed")
+      (analysis?.affectedClaims ?? 0) > 0 || verification?.hasFailed
         ? "needs-review"
-        : allPassed
+        : analysis && verification?.allPassed
           ? "verified"
           : "unknown",
-    evidence,
+    evidence: (verification?.outcomes ?? []).map((status, index) => ({
+      id: `${record.id}-evidence-${index}`,
+      label: `Python example ${index + 1}`,
+      status,
+      detail: descriptions[status],
+    })),
   };
 }
 
@@ -104,12 +91,12 @@ export async function readLiveDashboard(
             beforeCommit: true,
             afterCommit: true,
             createdAt: true,
-            report: true,
+            summary: true,
             repository: { select: { fullName: true } },
             verificationRuns: {
               take: 1,
               orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-              select: { report: true },
+              select: { summary: true },
             },
           },
         });

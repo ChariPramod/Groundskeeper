@@ -32,8 +32,18 @@ const record = (id: string, createdAt = "2026-10-01T12:00:00.000Z") => ({
   beforeCommit: "aaa",
   afterCommit: "bbb",
   createdAt: new Date(createdAt),
-  report: { health: { affected_claims: 2, total_claims: 5 }, claims: [{ text: "PRIVATE_SOURCE" }] },
-  verificationRuns: [{ report: { evidence: [{ outcome: "failed", stdout: "PRIVATE_OUTPUT" }] } }],
+  summary: { version: 1, affectedClaims: 2, totalClaims: 5 },
+  verificationRuns: [
+    {
+      summary: {
+        version: 1,
+        evidenceCount: 1,
+        outcomes: ["failed"],
+        allPassed: false,
+        hasFailed: true,
+      },
+    },
+  ],
   sharedReview: {
     owner: "reviewer",
     note: "x".repeat(2000),
@@ -121,6 +131,10 @@ describe("review inbox paging and recovery", () => {
       take: 21,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
+    const select = database.analysisRun.findMany.mock.calls[0]?.[0].select;
+    expect(select).not.toHaveProperty("report");
+    expect(select.summary).toBe(true);
+    expect(select.verificationRuns.select).toEqual({ summary: true });
     expect(database.disconnect).toHaveBeenCalledOnce();
   });
   it("ends pagination exactly at the last page", async () => {

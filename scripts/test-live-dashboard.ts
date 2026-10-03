@@ -338,7 +338,14 @@ try {
     const response = await teamGet("/api/auth/session");
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
-    assert.deepEqual(await response.json(), { githubUserId: "8", login: "bob", role });
+    const identity = await response.json();
+    assert.match(identity.viewScope, /^[a-f0-9]{64}$/);
+    assert.deepEqual(identity, {
+      githubUserId: "8",
+      login: "bob",
+      role,
+      viewScope: identity.viewScope,
+    });
   };
   stage = "existing session role downgrade and read-only access";
   await sessionRole("reviewer");

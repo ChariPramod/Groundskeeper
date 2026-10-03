@@ -105,7 +105,7 @@ export async function repairReviewResponse(
   env: Record<string, string | undefined> = process.env,
   read = readRepairFile,
 ): Promise<Response> {
-  const headers = { "Cache-Control": "no-store", Vary: "Authorization" };
+  const headers = { "Cache-Control": "no-store", Vary: "Cookie, Authorization" };
   const response = (v: unknown, status = 200) => Response.json(v, { status, headers });
   if (!/^[a-f0-9]{64}$/.test(digest)) return response({ error: "Artifact not found." }, 404);
   if (!env.DASHBOARD_MODE || env.DASHBOARD_MODE === "demo") {

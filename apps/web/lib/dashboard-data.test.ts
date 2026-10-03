@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { dashboardResponse, mapRun, type RunRecord, readLiveDashboard } from "./dashboard-data";
+import {
+  dashboardResponse,
+  mapRun,
+  readLiveDashboard,
+  type SummaryRunRecord,
+} from "./dashboard-data";
 import { getDemoDashboard } from "./demo-data";
 
 const database = vi.hoisted(() => ({
@@ -27,13 +32,13 @@ const env = {
 };
 const request = (token = "private-token") =>
   new Request("http://localhost/api/dashboard", { headers: { Authorization: `Bearer ${token}` } });
-const record: RunRecord = {
+const record: SummaryRunRecord = {
   id: "r1",
   repository: { fullName: "org/sdk" },
   beforeCommit: "abc",
   afterCommit: "def",
   createdAt: new Date("2026-09-21T12:00:00Z"),
-  report: { health: { total_claims: 5, affected_claims: 0 }, claims: [{ text: "secret source" }] },
+  summary: { version: 1, totalClaims: 5, affectedClaims: 0 },
   verificationRuns: [],
 };
 
@@ -107,63 +112,77 @@ describe("dashboard access and failure boundaries", () => {
   });
 });
 
-describe("dashboard report projection", () => {
-  it("leaves unverified analysis unknown and does not leak source", () => {
+describe("dashboard compact report projection", () => {
+  const passing = {
+    version: 1,
+    evidenceCount: 1,
+    outcomes: ["passed"],
+    allPassed: true,
+    hasFailed: false,
+  };
+  it("leaves unverified analysis unknown", () => {
     const run = mapRun(record);
     expect(run.status).toBe("unknown");
     expect(run.totalClaims).toBe(5);
-    expect(JSON.stringify(run)).not.toContain("secret source");
   });
   it("marks affected claims for review even with passing execution", () => {
     expect(
       mapRun({
         ...record,
-        report: { health: { affected_claims: 2, total_claims: 5 } },
-        verificationRuns: [{ report: { evidence: [{ outcome: "passed" }] } }],
+        summary: { version: 1, affectedClaims: 2, totalClaims: 5 },
+        verificationRuns: [{ summary: passing }],
       }).status,
     ).toBe("needs-review");
   });
-  it("uses newest evidence and excludes raw execution output and arbitrary reasons", () => {
+  it("uses newest evidence and exposes only fixed descriptions", () => {
     const run = mapRun({
       ...record,
       verificationRuns: [
         {
-          report: {
-            evidence: [
-              {
-                outcome: "passed",
-                stdout: "password",
-                reason: "secret",
-                claim_id: "sensitive-path",
-              },
-            ],
-          },
+          summary: { ...passing, stdout: "password", reason: "secret", claim_id: "sensitive-path" },
         },
-        { report: { evidence: [{ outcome: "failed" }] } },
+        { summary: { ...passing, outcomes: ["failed"], allPassed: false, hasFailed: true } },
       ],
     });
     expect(run.status).toBe("verified");
     expect(run.evidence[0]?.status).toBe("passed");
     expect(JSON.stringify(run)).not.toMatch(/password|secret|sensitive-path/);
   });
-  it("bounds displayed evidence without losing a failure beyond the display limit", () => {
-    const evidence = [
-      ...Array.from({ length: 100 }, () => ({ outcome: "passed" })),
-      { outcome: "failed" },
-    ];
-    const run = mapRun({ ...record, verificationRuns: [{ report: { evidence } }] });
-    expect(run.evidence).toHaveLength(100);
-    expect(run.status).toBe("needs-review");
+  it("keeps failed and unexecuted outcomes beyond the displayed 100 in the verdict", () => {
+    const summary = {
+      ...passing,
+      evidenceCount: 101,
+      outcomes: Array(100).fill("passed"),
+      allPassed: false,
+    };
+    const failed = mapRun({
+      ...record,
+      verificationRuns: [{ summary: { ...summary, hasFailed: true } }],
+    });
+    expect(failed.evidence).toHaveLength(100);
+    expect(failed.status).toBe("needs-review");
+    expect(mapRun({ ...record, verificationRuns: [{ summary }] }).status).toBe("unknown");
   });
-  it("does not turn skipped, error, or malformed reports into verified runs", () => {
-    for (const report of [
+  it("fails closed for malformed, missing, future-version or inconsistent summaries", () => {
+    for (const summary of [
       null,
-      { evidence: [{ outcome: "skipped" }] },
-      { evidence: [{ outcome: "error" }] },
-      { evidence: [{ outcome: "other" }] },
-    ]) {
-      expect(mapRun({ ...record, verificationRuns: [{ report }] }).status).toBe("unknown");
-    }
+      {},
+      { ...passing, version: 2 },
+      { ...passing, outcomes: ["skipped"] },
+      { ...passing, outcomes: ["other"] },
+      { ...passing, outcomes: [["passed"]] },
+      { ...passing, evidenceCount: 0 },
+    ])
+      expect(mapRun({ ...record, verificationRuns: [{ summary }] }).status).toBe("unknown");
+    for (const summary of [
+      null,
+      {},
+      { version: 2, affectedClaims: 0, totalClaims: 5 },
+      { version: 1, affectedClaims: -1, totalClaims: 5 },
+    ])
+      expect(mapRun({ ...record, summary, verificationRuns: [{ summary: passing }] }).status).toBe(
+        "unknown",
+      );
   });
 });
 
@@ -195,6 +214,10 @@ describe("live query boundaries", () => {
         take: 50,
       }),
     );
+    const runQuery = database.analysisRun.findMany.mock.lastCall?.[0];
+    expect(runQuery.select).not.toHaveProperty("report");
+    expect(runQuery.select.summary).toBe(true);
+    expect(runQuery.select.verificationRuns.select).toEqual({ summary: true });
     const queueQuery = database.webhookDelivery.findMany.mock.lastCall?.[0];
     expect(queueQuery.where).toEqual({
       installationId: 42n,

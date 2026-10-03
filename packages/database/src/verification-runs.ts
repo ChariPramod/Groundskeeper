@@ -218,12 +218,13 @@ export async function storeVerificationRun(
   database: PrismaClient,
   input: StoreVerificationRunInput,
 ): Promise<{ runId: string; created: boolean }> {
-  const { id, sourceDigest } = validate(input);
+  const report = JSON.parse(canonicalJson(input.report)) as Prisma.InputJsonObject;
+  const { id, sourceDigest } = validate({ ...input, report });
   const inputDigest = createHash("sha256")
     .update(
       canonicalJson({
         analysisRunId: input.analysisRunId,
-        report: input.report,
+        report,
       }),
     )
     .digest("hex");
@@ -242,8 +243,11 @@ export async function storeVerificationRun(
         ) {
           throw new VerificationRunOwnershipError();
         }
-        validateClaims(owner.report, input.report);
-        const existing = await tx.verificationRun.findUnique({ where: { id } });
+        validateClaims(owner.report, report);
+        const existing = await tx.verificationRun.findUnique({
+          where: { id },
+          select: { id: true, inputDigest: true },
+        });
         if (existing) {
           if (existing.inputDigest !== inputDigest) throw new VerificationRunConflictError(id);
           return { runId: id, created: false };
@@ -254,8 +258,9 @@ export async function storeVerificationRun(
             analysisRunId: input.analysisRunId,
             sourceDigest,
             inputDigest,
-            report: input.report,
+            report,
           },
+          select: { id: true },
         });
         return { runId: id, created: true };
       });

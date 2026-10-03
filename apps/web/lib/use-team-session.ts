@@ -2,7 +2,11 @@
 import { useEffect, useState } from "react";
 export type TeamRole = "viewer" | "reviewer" | "admin";
 export function useTeamSession(enabled: boolean) {
-  const [session, setSession] = useState<{ login: string; role: TeamRole } | null>(null);
+  const [session, setSession] = useState<{
+    login: string;
+    role: TeamRole;
+    viewScope: string | null;
+  } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!enabled) {
@@ -31,7 +35,14 @@ export function useTeamSession(enabled: boolean) {
         )
           throw new Error("Invalid session");
         if (current && !request.signal.aborted) {
-          setSession({ login: data.login, role: data.role });
+          setSession({
+            login: data.login,
+            role: data.role,
+            viewScope:
+              typeof data.viewScope === "string" && /^[a-f0-9]{64}$/.test(data.viewScope)
+                ? data.viewScope
+                : null,
+          });
           setError("");
         }
       } catch {

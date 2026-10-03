@@ -121,7 +121,7 @@ export async function reviewResponse(
   env: Record<string, string | undefined> = process.env,
   read = readLiveReview,
 ): Promise<Response> {
-  const headers = { "Cache-Control": "no-store", Vary: "Authorization" };
+  const headers = { "Cache-Control": "no-store", Vary: "Cookie, Authorization" };
   const response = (value: unknown, status = 200) => Response.json(value, { status, headers });
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(id)) return response({ error: "Run not found." }, 404);
   if (!env.DASHBOARD_MODE || env.DASHBOARD_MODE === "demo") {

@@ -79,6 +79,28 @@ function fakeDatabase(
 }
 
 describe("verification persistence", () => {
+  it("stores the validated snapshot even if the caller's report changes during database work", async () => {
+    const { database, tx } = fakeDatabase();
+    const first = input();
+    const report = { ...first.report, image: "original-image" };
+    first.report = report;
+    const original = structuredClone(report);
+    tx.verificationRun.findUnique.mockImplementationOnce(async () => {
+      report.image = "changed-while-awaiting";
+      return undefined;
+    });
+    const stored = await storeVerificationRun(database, first);
+    expect(tx.verificationRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ report: original }),
+        select: { id: true },
+      }),
+    );
+    expect(await storeVerificationRun(database, { ...first, report: original })).toEqual({
+      runId: stored.runId,
+      created: false,
+    });
+  });
   it("accepts replay with reordered JSON and allows explicit new attempts", async () => {
     const { database, tx } = fakeDatabase();
     const first = input();
@@ -359,6 +381,13 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         where: { id: String(first.report.id) },
       });
       expect(stored.report).toEqual(first.report);
+      expect(stored.summary).toEqual({
+        version: 1,
+        evidenceCount: 1,
+        outcomes: ["passed"],
+        allPassed: true,
+        hasFailed: false,
+      });
       expect(stored.sourceDigest).toBe(first.report.source_digest);
     } finally {
       await database.workspace.deleteMany({ where: { installationId } });

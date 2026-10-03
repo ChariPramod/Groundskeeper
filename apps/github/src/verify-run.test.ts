@@ -187,6 +187,7 @@ it.each([
     expect(result).toEqual({ runId: report.id, created: true });
     expect(create).toHaveBeenCalledWith({
       data: expect.objectContaining({ report, sourceDigest: report.source_digest }),
+      select: { id: true },
     });
   },
 );

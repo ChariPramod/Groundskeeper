@@ -46,7 +46,21 @@ describe("team OAuth", () => {
     });
     const response = await sessionResponse(new Request(env.AUTH_ORIGIN), env, authorize);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ githubUserId: "7", login: "alice", role: "viewer" });
+    const identity = await response.json();
+    expect(identity).toEqual({
+      githubUserId: "7",
+      login: "alice",
+      role: "viewer",
+      viewScope: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    authorize.mockResolvedValue({
+      installationId: 43n,
+      githubUserId: 7n,
+      login: "alice",
+      role: "viewer",
+    });
+    const anotherWorkspace = await sessionResponse(new Request(env.AUTH_ORIGIN), env, authorize);
+    expect((await anotherWorkspace.json()).viewScope).not.toBe(identity.viewScope);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("vary")).toContain("Cookie");
   });

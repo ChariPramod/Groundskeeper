@@ -43,6 +43,27 @@ function fakeDatabase() {
 }
 
 describe("analysis result persistence", () => {
+  it("snapshots report JSON before waiting so the digest and stored summary source stay consistent", async () => {
+    const { database, tx } = fakeDatabase();
+    const report = { health: { total_claims: 5, affected_claims: 2 } };
+    const first = { ...input(), report };
+    const original = structuredClone(report);
+    tx.analysisRun.findUnique.mockImplementationOnce(async () => {
+      report.health.affected_claims = 0;
+      return undefined;
+    });
+    const stored = await storeAnalysisRun(database, first);
+    expect(tx.analysisRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ report: original }),
+        select: { id: true },
+      }),
+    );
+    expect(await storeAnalysisRun(database, { ...first, report: original })).toEqual({
+      runId: stored.runId,
+      created: false,
+    });
+  });
   it("rejects a lost lease inside the transaction before reading or writing results", async () => {
     const { database, tx, transaction } = fakeDatabase();
     await expect(storeAnalysisRun(database, input(), "expired-token")).rejects.toBeInstanceOf(
@@ -140,6 +161,45 @@ describe("analysis result persistence", () => {
 });
 
 it.skipIf(!process.env.DATABASE_TEST_URL)(
+  "fences expired analysis leases correctly when PostgreSQL sessions use a non-UTC timezone",
+  async () => {
+    const url = new URL(process.env.DATABASE_TEST_URL as string);
+    url.searchParams.set("connection_limit", "1");
+    const database = new PrismaClient({ datasourceUrl: url.toString() });
+    const first = input();
+    const token = randomUUID();
+    try {
+      await database.$executeRawUnsafe("SET TIME ZONE 'America/Los_Angeles'");
+      await database.webhookDelivery.create({
+        data: {
+          id: first.deliveryId,
+          event: "push",
+          installationId: first.installationId,
+          payload: {},
+          leaseToken: token,
+          leaseExpiresAt: new Date(Date.now() - 60_000),
+        },
+      });
+      await expect(storeAnalysisRun(database, first, token)).rejects.toBeInstanceOf(
+        PushLeaseLostError,
+      );
+      expect(await database.analysisRun.count({ where: { deliveryId: first.deliveryId } })).toBe(0);
+      await database.webhookDelivery.update({
+        where: { id: first.deliveryId },
+        data: {
+          leaseExpiresAt: new Date(Date.now() + 60_000),
+        },
+      });
+      expect((await storeAnalysisRun(database, first, token)).created).toBe(true);
+    } finally {
+      await database.webhookDelivery.deleteMany({ where: { id: first.deliveryId } });
+      await database.workspace.deleteMany({ where: { installationId: first.installationId } });
+      await database.$disconnect();
+    }
+  },
+);
+
+it.skipIf(!process.env.DATABASE_TEST_URL)(
   "stores concurrent immutable runs with tenant isolation and rejects conflicting replay",
   async () => {
     const database = new PrismaClient({ datasourceUrl: process.env.DATABASE_TEST_URL });
@@ -158,6 +218,8 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         include: { repository: { include: { workspace: true } } },
       });
       expect(runs).toHaveLength(2);
+      for (const run of runs)
+        expect(run.summary).toEqual({ version: 1, affectedClaims: 0, totalClaims: 0 });
       expect(new Set(runs.map((run) => run.repositoryId)).size).toBe(2);
       expect(new Set(runs.map((run) => run.repository.workspace.installationId))).toEqual(
         new Set([first.installationId, other.installationId]),

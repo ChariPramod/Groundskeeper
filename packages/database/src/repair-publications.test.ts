@@ -75,6 +75,7 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
     const schema = `repair_${randomUUID().replaceAll("-", "")}`;
     const url = new URL(process.env.DATABASE_TEST_URL as string);
     url.searchParams.set("schema", schema);
+    url.searchParams.set("connection_limit", "1");
     const db = new PrismaClient({ datasourceUrl: url.toString() }),
       other = new PrismaClient({ datasourceUrl: url.toString() });
     try {
@@ -83,6 +84,8 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         await admin.$executeRawUnsafe(
           `CREATE TABLE "${schema}"."${table}" (LIKE "${table}" INCLUDING ALL)`,
         );
+      await db.$executeRawUnsafe("SET TIME ZONE 'Asia/Tokyo'");
+      await other.$executeRawUnsafe("SET TIME ZONE 'America/Los_Angeles'");
       const workspace = await db.workspace.create({
         data: { installationId: 1n, account: "test" },
       });
@@ -113,10 +116,17 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
       const winner = outcomes.find((o) => o.status === "fulfilled");
       if (winner?.status !== "fulfilled" || !winner.value.token) throw new Error("Missing winner");
       const token = winner.value.token;
+      const reserved = await db.repairPublication.findUniqueOrThrow({
+        where: { analysisRunId: "run" },
+      });
+      expect(reserved.leaseExpiresAt?.getTime()).toBeGreaterThan(Date.now() + 540_000);
+      expect(reserved.leaseExpiresAt?.getTime()).toBeLessThan(Date.now() + 660_000);
+      await assertRepairPublicationLease(db, "run", input.proposalId, token);
+      await assertRepairPublicationLease(other, "run", input.proposalId, token);
       await expect(
         reserveRepairPublication(other, { ...input, proposalId: "b".repeat(64) }),
       ).rejects.toThrow("Another proposal");
-      await db.$executeRaw`UPDATE "RepairPublication" SET "leaseExpiresAt" = clock_timestamp() - interval '1 second' WHERE "analysisRunId" = 'run'`;
+      await db.$executeRaw`UPDATE "RepairPublication" SET "leaseExpiresAt" = (clock_timestamp() AT TIME ZONE 'UTC') - interval '1 second' WHERE "analysisRunId" = 'run'`;
       const recovered = await reserveRepairPublication(other, input);
       if (!recovered.token) throw new Error("Missing recovered token");
       await expect(

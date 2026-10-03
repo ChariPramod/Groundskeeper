@@ -69,9 +69,9 @@ export async function reserveRepairPublication(
       });
     const token = randomUUID();
     const claimed = await tx.$executeRaw`
-      UPDATE "RepairPublication" SET "leaseToken" = ${token}, "leaseExpiresAt" = clock_timestamp() + interval '10 minutes'
+      UPDATE "RepairPublication" SET "leaseToken" = ${token}, "leaseExpiresAt" = (clock_timestamp() AT TIME ZONE 'UTC') + interval '10 minutes'
       WHERE "analysisRunId" = ${input.analysisRunId} AND "proposalId" = ${input.proposalId}
-        AND "pullRequestUrl" IS NULL AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= clock_timestamp())
+        AND "pullRequestUrl" IS NULL AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" <= (clock_timestamp() AT TIME ZONE 'UTC'))
     `;
     if (claimed !== 1)
       throw new RepairReservationError(
@@ -90,7 +90,7 @@ export async function assertRepairPublicationLease(
   const rows = await database.$queryRaw<{ analysisRunId: string }[]>`
     SELECT "analysisRunId" FROM "RepairPublication"
     WHERE "analysisRunId" = ${analysisRunId} AND "proposalId" = ${proposalId} AND "leaseToken" = ${token}
-      AND "leaseExpiresAt" > clock_timestamp() AND "pullRequestUrl" IS NULL
+      AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC') AND "pullRequestUrl" IS NULL
   `;
   if (rows.length !== 1)
     throw new RepairReservationError("Publication lease expired or is no longer owned");
@@ -106,7 +106,7 @@ export async function finishRepairPublication(
   const changed = await database.$executeRaw`
     UPDATE "RepairPublication" SET "pullRequestUrl" = ${url}, "leaseToken" = NULL, "leaseExpiresAt" = NULL
     WHERE "analysisRunId" = ${analysisRunId} AND "leaseToken" = ${token}
-      AND "leaseExpiresAt" > clock_timestamp() AND "pullRequestUrl" IS NULL
+      AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC') AND "pullRequestUrl" IS NULL
   `;
   if (changed !== 1)
     throw new RepairReservationError(

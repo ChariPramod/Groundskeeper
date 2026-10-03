@@ -1,0 +1,41 @@
+sequenceDiagram
+  accTitle: Shared review transaction and response
+  accDescr: A role-authorized same-origin request enters a bounded transaction. Membership and owned run are locked. The expected version must match before state and an audit event commit together. Conflicts and uncertain responses preserve the draft.
+  autonumber
+  participant UI as Shared review editor
+  participant API as PUT /api/review/:id/state
+  participant Auth as Session boundary
+  participant DB as PostgreSQL transaction
+
+  UI->>API: Origin + cookie + JSON<br/>Expected version, owner, note, dismissed
+  API->>API: Exact configured origin
+  API->>Auth: Require reviewer or admin session
+  Auth-->>API: Installation + numeric actor + current role
+  API->>API: Authorized request:<br/>JSON size and shape limits
+  alt Access or input rejected
+    API-->>UI: 400 / 401 / 403 / 408 / 413 / 415
+    UI->>UI: Retain draft, explain corrective action
+  else Request accepted
+    API->>DB: Begin bounded transaction
+    DB->>DB: Lock membership FOR SHARE<br/>Recheck role and installation
+    DB->>DB: Lock owned AnalysisRun<br/>FOR UPDATE
+    alt Access lost or run unavailable
+      DB-->>API: Rollback, access denied or run not found
+      API-->>UI: 403 or 404, no review mutation
+    else Owned run and write permission confirmed
+      DB->>DB: Compare expected version<br/>with stored version
+      alt Version conflict
+        DB-->>API: Rollback
+        API-->>UI: 409, reload before another save
+        UI->>UI: Keep draft visible<br/>Mark save unconfirmed
+      else Version matches
+        DB->>DB: Create or compare-and-update<br/>Increment version
+        DB->>DB: Append actor-attributed<br/>review event
+        DB->>DB: Read state + latest 20 events<br/>Commit transaction
+        DB-->>API: Confirmed snapshot
+        API-->>UI: 200 + no-store
+        UI->>UI: Validate version<br/>Replace draft and history<br/>Refresh inbox using active filters
+      end
+    end
+  end
+  Note over UI,DB: A timeout or lost response can leave commit outcome uncertain.<br/>The draft stays visible, reload server state before retrying.

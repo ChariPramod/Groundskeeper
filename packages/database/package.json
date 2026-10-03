@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
+    "./report-summaries": "./src/report-summaries.ts",
     "./team-access": "./src/team-access.ts",
     "./shared-reviews": "./src/shared-reviews.ts"
   },

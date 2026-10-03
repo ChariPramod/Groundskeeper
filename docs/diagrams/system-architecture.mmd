@@ -1,0 +1,54 @@
+flowchart TB
+  accTitle: Groundskeeper system architecture
+  accDescr: The deployed demo web app connects through Next.js and Prisma to a pending live PostgreSQL database. Separate webhook ingress and leased workers analyze pinned GitHub snapshots. Explicit operator commands verify examples with Docker and publish approved draft repairs.
+  subgraph WEB["WEB APPLICATION · deployed on Vercel in demo mode"]
+    direction LR
+    Browser["Browser workspace<br/>Dashboard · inbox · operations"]
+    Next["Next.js routes<br/>OAuth and role checks"]
+    Prisma["Prisma data access<br/>Installation-scoped queries"]
+    Browser -->|"HTTPS · validated responses"| Next
+    Next --> Prisma
+  end
+
+  DB[("PostgreSQL · live connection pending<br/>Inbox · immutable reports · summaries<br/>Members · session hashes · review history")]
+  WEB -->|"Bounded reads · transactional writes"| DB
+
+  subgraph PROCESSING["BACKGROUND ANALYSIS · hosting pending"]
+    direction LR
+    GitHub["GitHub App<br/>Push and pull-request events"]
+    Ingress["Probot webhook ingress<br/>Signature validation"]
+    Worker["Supervised Node worker<br/>Timeouts · retry · graceful drain"]
+    Snapshots["GitHub snapshot gateway<br/>Pinned commits · blob checks"]
+    Parser["TypeScript parser<br/>Documentation claims"]
+    Python["Python analysis process<br/>Symbols · changes · impact"]
+    Persist["Node result handling<br/>storeAnalysisRun then ackDelivery"]
+    GitHub -->|"Signed delivery"| Ingress
+    Worker --> Snapshots --> Parser --> Python
+    Python -->|"JSON report"| Persist
+  end
+  Ingress -->|"Persist routing metadata before acknowledgement"| DB
+  DB -->|"Atomic claim · expiring lease"| Worker
+  Persist -->|"Lease-fenced write, then acknowledgement"| DB
+
+  subgraph EXPLICIT["EXPLICIT OPERATOR WORKFLOW"]
+    direction LR
+    Operator["Operator CLI<br/>Verify · prepare · approve"]
+    Docker["Docker verification<br/>Restricted Python examples"]
+    Artifacts["Immutable local artifacts<br/>Evidence · proposal · receipts"]
+    Publisher["Repair publisher<br/>Fresh checks · publication lease"]
+    Draft["GitHub draft PR<br/>Human review"]
+    Operator --> Docker --> Artifacts
+    Artifacts --> Publisher --> Draft
+  end
+  DB -->|"Installation-scoped stored run"| Operator
+  Artifacts -->|"Verification report; import available for recovery"| DB
+  Publisher <-->|"Reserve and finalize publication"| DB
+
+  classDef hosted fill:#eaf2ff,stroke:#2563eb,color:#162e55,stroke-width:1.5px;
+  classDef pending fill:#fff7e6,stroke:#d49b22,color:#533d17,stroke-width:1.5px;
+  classDef operator fill:#f0edff,stroke:#7962b3,color:#362753,stroke-width:1.5px;
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#243247,stroke-width:1.5px;
+  class Browser,Next,Prisma hosted;
+  class DB,Ingress,Worker,Snapshots,Parser,Python,Persist pending;
+  class Operator,Docker,Artifacts,Publisher operator;
+  class GitHub,Draft external;

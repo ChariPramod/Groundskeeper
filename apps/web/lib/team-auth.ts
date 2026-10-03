@@ -102,7 +102,15 @@ export async function sessionResponse(
     const access = await authorize(request, env);
     if (access instanceof Response) return access;
     return Response.json(
-      { githubUserId: access.githubUserId.toString(), login: access.login, role: access.role },
+      {
+        githubUserId: access.githubUserId.toString(),
+        login: access.login,
+        role: access.role,
+        // A storage namespace, never an authorization credential.
+        viewScope: createHash("sha256")
+          .update(`${access.installationId}:${access.githubUserId}`)
+          .digest("hex"),
+      },
       { headers },
     );
   } catch {

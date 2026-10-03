@@ -50,3 +50,32 @@ GitHub CI exercised the new real PostgreSQL production-server/browser smoke succ
 - Hosted production-server smoke coverage now includes role downgrade/elevation, inbox authorization and filters, operations tenant isolation, and output redaction.
 
 Before live activation, apply both the shared-review and role migrations with `pnpm db:migrate`. New UI features can be explored in the explicitly labeled demo while infrastructure connections are deferred. No paid service was provisioned in this iteration.
+
+## Architecture, query and storage iteration — October 2026
+
+Implemented:
+
+- [Overall architecture](ARCHITECTURE.md) and [query/response architecture](QUERY_RESPONSE_ARCHITECTURE.md), with editable Mermaid sources and accessible SVG exports. These cover ingestion, worker recovery, authorization, filtered reads, versioned writes, and actual deployment boundaries.
+- Database-generated compact analysis/verification summaries. Dashboard and inbox queries select summaries; detailed evidence still uses the immutable original reports. All evidence contributes to verdict flags even when only the first 100 outcomes are displayed. Invalid summary versions fail closed.
+- Composite indexes for ordered repository runs, latest verification, tenant queues, and installation-scoped expiry cleanup. Replay checks and report inserts return only the required identity/digest fields.
+- Explicit UTC timestamp defaults and UTC lease/expiry comparisons, tested in database sessions west and east of UTC. Existing historical timestamps are preserved: if a previous deployment used non-UTC PostgreSQL sessions, investigate its historical clock offset separately instead of blindly shifting all records.
+- `pnpm db:maintenance`: storage diagnostics and a dry run by default, with bounded, installation-scoped expired-session cleanup behind `--apply`. It preserves reports, audit history and delivery replay protection. See [maintenance instructions](STORAGE_MAINTENANCE.md).
+- Eight personal saved inbox views with named filters, update/delete, installation/user isolation, and visible browser-storage fallback. A changed session scope resets the inbox, pending reads, drafts, and preset list. These are local preferences, not shared team records.
+- Live readiness now checks the summary columns needed by list queries, so a missing summary migration cannot be reported as a ready database.
+
+Measured in PostgreSQL using synthetic reports with repeated source/output text:
+
+| Projection | Full report JSON | Summary JSON | Fewer transferred bytes |
+| --- | ---: | ---: | ---: |
+| Analysis (200 claim bodies) | 492,867 | 55 | 99.99% |
+| Verification (150 evidence records) | 373,064 | 1,089 | 99.71% |
+
+These measurements compare JSON text byte lengths, not response latency or physical disk savings. Summaries add a small amount of stored data to avoid repeatedly reading/transferring large reports. Original report storage remains intact; PostgreSQL compression and indexes have separate costs. No production workload benchmark is claimed.
+
+Before live activation:
+
+1. Apply all migrations with `pnpm db:migrate`, including report summaries, UTC defaults, and scoped session expiry indexing. For an existing populated database, follow the backup, free-space and maintenance-window guidance: stored generated columns rewrite tables under exclusive locks.
+2. Run `pnpm db:maintenance --installation-id YOUR_INSTALLATION_ID` and inspect the dry-run diagnostics. Add `--limit 250 --apply` only when you intend to remove a batch of expired sessions. No cleanup scheduler has been provisioned.
+3. Complete the infrastructure and hosted acceptance steps earlier in this document. The public Vercel demo can show the UI and saved views, but cannot prove live GitHub ingestion or background processing. No paid resources were provisioned.
+
+Validation for this increment: the full local check passed with 345 TypeScript tests against real PostgreSQL and 109 Python tests; a subsequent migration-readiness regression also passed (346 TypeScript tests in total). The production Next build and all 27 browser tests passed, including an in-place identity change. The production-server smoke passed against real PostgreSQL with seeded team sessions, including tenant isolation, tied-timestamp inbox pagination, role changes, version conflicts, audit records and operations projections. Prisma validation and migration drift checks passed. Desktop and 390px mobile saved-view screens were inspected without overflow or browser errors. One TypeScript and four Python Docker-dependent tests remain for Docker-enabled CI; no hosted OAuth login or background-worker acceptance is implied by these local checks.

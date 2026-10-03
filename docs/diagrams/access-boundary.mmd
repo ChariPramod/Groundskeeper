@@ -1,0 +1,19 @@
+flowchart TB
+  accTitle: Groundskeeper identity and role boundary
+  accDescr: GitHub OAuth issues an eight-hour secure session after installation allowlist checks. Only session hashes are stored. Every request checks current membership and role. Viewers read reviews; reviewers and admins can save. Operators manage membership.
+  Browser["Browser"] -->|"Login redirect"| GitHub["GitHub OAuth<br/>State + PKCE"]
+  GitHub -->|"Code and verified identity"| Callback["OAuth callback<br/>Installation allowlist"]
+  Callback -->|"Secure HttpOnly cookie<br/>8-hour expiry"| Browser
+  Callback -->|"Store SHA-256 token hash"| Sessions[("TeamSession<br/>Current TeamMember role")]
+  Browser -->|"Cookie on every request"| Guard["Server access boundary<br/>Expiry · installation · membership"]
+  Sessions --> Guard
+  Guard -->|"viewer / reviewer / admin"| Read["Read analyses and team reviews"]
+  Guard -->|"reviewer / admin only"| Write["Save shared review<br/>Origin check + transaction recheck"]
+  Operator["Operator CLI"] -->|"Grant · change role · revoke"| Sessions
+
+  classDef boundary fill:#eaf2ff,stroke:#2563eb,color:#162e55;
+  classDef store fill:#fff7e6,stroke:#d49b22,color:#533d17;
+  classDef action fill:#f0edff,stroke:#7962b3,color:#362753;
+  class Callback,Guard boundary;
+  class Sessions store;
+  class Read,Write,Operator action;

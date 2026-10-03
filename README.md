@@ -1,10 +1,14 @@
 # Groundskeeper
 
-[Hosted demo](https://temporary-racing-aurora-75uu7zy.vercel.app) · [Interactive walkthrough](https://temporary-racing-aurora-75uu7zy.vercel.app/walkthrough) · [Product readiness](docs/PRODUCT_READINESS.md) · [Deployment setup](docs/DEPLOYMENT.md)
+[Hosted demo](https://temporary-racing-aurora-75uu7zy.vercel.app) · [Interactive walkthrough](https://temporary-racing-aurora-75uu7zy.vercel.app/walkthrough) · [Product readiness](docs/PRODUCT_READINESS.md) · [Deployment setup](docs/DEPLOYMENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Query/response diagrams](docs/QUERY_RESPONSE_ARCHITECTURE.md)
 
 Documentation maintenance backed by evidence: index what docs claim, link those claims to code, detect possible drift, and eventually verify fixes by execution before opening reviewable PRs.
 
 **Status: local analysis, review, and verified repair workflow implemented.** Commit-pinned analysis and isolated Python verification now feed a detailed review workspace and bounded repair artifacts. Explicit CLI commands can independently reverify a repair and open a draft PR, or analyze an existing same-repository PR and publish a neutral informational check. CI exercises real Docker and PostgreSQL; a hosted GitHub-to-worker pilot remains pending. See the [repair workflow](docs/REPAIR_WORKFLOW.md) and [operator handoff](docs/PROJECT_HANDOFF.md).
+
+## Current workflow improvements
+
+Saved inbox views keep up to eight named filter sets in your browser, separately for each signed-in workspace and user. Dashboard and inbox reads use compact database-generated report summaries, with full evidence available through detailed review. The operator command `pnpm db:maintenance --installation-id 42` provides a dry run of bounded expired-session cleanup and storage diagnostics; see [storage maintenance](docs/STORAGE_MAINTENANCE.md). Apply current migrations before enabling live mode.
 
 ## Run the demo
 

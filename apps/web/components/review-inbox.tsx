@@ -22,6 +22,7 @@ import {
   type ReviewInboxFilters,
   type ReviewInboxPage,
 } from "../lib/review-inbox-types";
+import { SavedInboxViews } from "./saved-inbox-views";
 import { Button } from "./ui/button";
 
 type Snapshot = {
@@ -42,10 +43,12 @@ export function ReviewInbox({
   mode,
   onOpenRun,
   refreshKey = 0,
+  viewScope = null,
 }: {
   mode: "demo" | "live";
   onOpenRun: (run: DashboardRun) => void;
   refreshKey?: number;
+  viewScope?: string | null;
 }) {
   const [draft, setDraft] = useState<ReviewInboxFilters>(defaultInboxFilters);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -105,6 +108,7 @@ export function ReviewInbox({
     void load(defaultInboxFilters);
   };
   const applied = current?.filters;
+  const savedScope = mode === "demo" ? "demo" : viewScope ? `live:${viewScope}` : null;
   return (
     <section className="flex flex-col gap-6" aria-labelledby="review-inbox-title">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -175,7 +179,7 @@ export function ReviewInbox({
               maxLength={201}
               value={draft.repository}
               placeholder="e.g. acme/python-sdk"
-              pattern="[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+              pattern="[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}"
               onChange={(event) => setDraft({ ...draft, repository: event.target.value })}
             />
           </label>
@@ -206,6 +210,16 @@ export function ReviewInbox({
           </div>
         </div>
       </form>
+      <SavedInboxViews
+        key={savedScope ?? "unconfirmed"}
+        scope={savedScope}
+        filters={!dirty ? (applied ?? null) : null}
+        busy={busy}
+        onApply={(filters) => {
+          setDraft(filters);
+          void load(filters);
+        }}
+      />
       {error && (
         <div
           role="alert"
