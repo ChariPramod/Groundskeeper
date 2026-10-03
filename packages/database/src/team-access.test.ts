@@ -109,6 +109,19 @@ it.skipIf(!process.env.DATABASE_TEST_URL)(
         await admin.$executeRawUnsafe(
           `CREATE TABLE "${schema}"."${table}" (LIKE "${table}" INCLUDING ALL)`,
         );
+      // LIKE preserves the source enum type; Prisma addresses enums in the selected schema.
+      await admin.$executeRawUnsafe(
+        `CREATE TYPE "${schema}"."TeamRole" AS ENUM ('viewer', 'reviewer', 'admin')`,
+      );
+      await admin.$executeRawUnsafe(
+        `ALTER TABLE "${schema}"."TeamMember" ALTER COLUMN "role" DROP DEFAULT`,
+      );
+      await admin.$executeRawUnsafe(
+        `ALTER TABLE "${schema}"."TeamMember" ALTER COLUMN "role" TYPE "${schema}"."TeamRole" USING "role"::text::"${schema}"."TeamRole"`,
+      );
+      await admin.$executeRawUnsafe(
+        `ALTER TABLE "${schema}"."TeamMember" ALTER COLUMN "role" SET DEFAULT 'reviewer'::"${schema}"."TeamRole"`,
+      );
       await admin.$executeRawUnsafe(
         `ALTER TABLE "${schema}"."TeamMember" ADD FOREIGN KEY ("workspaceId") REFERENCES "${schema}"."Workspace"("id") ON DELETE CASCADE`,
       );
